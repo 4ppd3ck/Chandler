@@ -1,0 +1,2 @@
+#PLACE AWS RELATED ALIASES HERE
+#alias awsstg="ssm_session <SERVER_ID> <PROFILE_NAME> <REGION>"

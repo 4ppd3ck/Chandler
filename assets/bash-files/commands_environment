@@ -1,0 +1,320 @@
+# =============================================================================
+# commands_environment
+# -----------------------------------------------------------------------------
+# Short, catchy command shortcuts for Kubernetes (kubectl) and AWS CLI.
+#
+#   k  ...  -> kubectl dispatcher        (e.g. `k p`     = kubectl get pods)
+#   aw -> aws dispatcher          (e.g. `aw id`   = who am I in AWS)
+#
+# Why functions and not plain aliases? Aliases can't take arguments in the
+# middle, so `alias kgp='kubectl get pods'` works but you can't easily add
+# `-n kube-system`. A function lets every shortcut accept extra flags and
+# also fall back to the real tool, so `k get svc -A` still works.
+#
+# Type `k` or `aw` with no arguments to see the built-in cheat sheet.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# k  -  kubectl dispatcher
+# -----------------------------------------------------------------------------
+# Usage:
+#   k                     -> show this cheat sheet
+#   k p [args]            -> kubectl get pods [args]
+#   k ctx                 -> pick a Kubernetes context (TUI picker)
+#   k <anything>          -> kubectl <anything>   (passthrough)
+k() {
+  # No argument -> print cheat sheet.
+  if [[ $# -eq 0 ]]; then
+    cat <<'EOF'
+k - kubectl shortcuts
+-----------------------------------------------------------------
+  k                       show this help
+  k p   | pods            get pods            (extra flags OK)
+  k ns  | namespaces       get namespaces
+  k n   | nodes            get nodes
+  k svc | services         get services
+  k ing | ingress          get ingress
+  k cm  | configmaps       get configmaps
+  k sec | secrets          get secrets
+  k dep | deploy | deployments   get deployments
+  k ds                      get daemonsets
+  k sts                     get statefulsets
+  k jobs                    get jobs
+  k all                     get all
+  k d   | desc <type> <name>   describe <type>/<name>
+  k lg  | logs [-f] <pod>      logs (add 'f' for follow)
+  k ex  | exec <pod>           exec -it into pod
+  k doc | doctor <pod> [ns]    one-shot pod doctor (events+logs+crash)
+  k cleanup [list|delete]      find/delete evicted pods, dead jobs, old RS
+  k top [cpu|mem] [-n ns|-A]   top pods by CPU/mem (ns picker)
+  k restart [deploy] [ns]      rollout restart (pick + watch status)
+  k fwd [list|stop|pod]        port-forward manager (pick, background)
+  k ev | events [-w] [-a]      warning events feed (-w live, -a all types)
+  k helm                      helm release manager (picker)
+  k htest [chart] [-e env]    helm template render test (values-<env>.yaml)
+  k hlint [chart]             helm lint + optional render (k8s/helm_lint.sh)
+  k ylint [path]              yaml lint: tabs / spacing / parse (k8s/yaml_lint.sh)
+  k kust [path] [--build]     validate kustomization.yaml (k8s/kustomize_check.sh)
+  k argo [cmd]                argocd app manager (k8s/argocd_manager.sh)
+  k b64  enc|dec|kget ...     base64 / secret helper (k8s/base64_secret.sh)
+  k ver | version              cluster / client version
+  k ctx                       switch context   (TUI, from kctx)
+  k ns-switch                 switch namespace (TUI, from kens)
+  k sa                        get serviceaccounts
+-----------------------------------------------------------------
+  Anything else is passed straight to kubectl, e.g.:
+  k apply -f file.yaml | k get svc -A | k delete pod nginx
+EOF
+    return 0
+  fi
+
+  local sub="$1"; shift || true
+
+  case "$sub" in
+    h|help)         k ;;
+    p|po|pods)      kubectl get pods "$@" ;;
+    ns|namespaces)  kubectl get namespaces "$@" ;;
+    n|nodes)        kubectl get nodes "$@" ;;
+    svc|services)   kubectl get svc "$@" ;;
+    ing|ingress)    kubectl get ingress "$@" ;;
+    cm|configmaps)  kubectl get configmaps "$@" ;;
+    sec|secrets)    kubectl get secrets "$@" ;;
+    dep|deploy|deployments) kubectl get deployments "$@" ;;
+    ds|daemonsets)  kubectl get daemonsets "$@" ;;
+    sts|statefulsets) kubectl get statefulsets "$@" ;;
+    jobs)           kubectl get jobs "$@" ;;
+    sa|serviceaccounts) kubectl get serviceaccounts "$@" ;;
+    all)            kubectl get all "$@" ;;
+    d|desc|describe) kubectl describe "$@" ;;
+    lg|logs)
+      # `k lg f mypod` -> follow logs ; `k lg mypod` -> plain logs
+      if [[ "${1:-}" == "f" || "${1:-}" == "-f" || "${1:-}" == "follow" ]]; then
+        shift
+        kubectl logs -f "$@"
+      else
+        kubectl logs "$@"
+      fi
+      ;;
+    ex|exec)        kubectl exec -it "$@" ;;
+    doc|doctor)
+      local script="$HOME/.local/share/chandler/scripts/k8s/k_doctor.sh"
+      [[ -f "$script" ]] && bash "$script" "$@" || kubectl describe pod "$@"
+      ;;
+    cleanup)
+      local script="$HOME/.local/share/chandler/scripts/k8s/k_cleanup.sh"
+      [[ -f "$script" ]] && bash "$script" "${1:-list}" || echo "k_cleanup.sh not installed"
+      ;;
+    top)
+      local script="$HOME/.local/share/chandler/scripts/k8s/k_top.sh"
+      if [[ -f "$script" ]]; then
+        bash "$script" "$@" || kubectl top pods; echo "---"; kubectl top nodes
+      else
+        kubectl top pods; echo "---"; kubectl top nodes
+      fi
+      ;;
+    restart|rollout-restart)
+      local script="$HOME/.local/share/chandler/scripts/k8s/k_restart.sh"
+      [[ -f "$script" ]] && bash "$script" "$@" || kubectl rollout restart "$@"
+      ;;
+    fwd|forward)
+      local script="$HOME/.local/share/chandler/scripts/k8s/k_forward.sh"
+      [[ -f "$script" ]] && bash "$script" "$@" || kubectl port-forward "$@"
+      ;;
+    ev|events)
+      local script="$HOME/.local/share/chandler/scripts/k8s/k_events.sh"
+      [[ -f "$script" ]] && bash "$script" "$@" || kubectl get events "$@"
+      ;;
+    helm|release)
+      local script="$HOME/.local/share/chandler/scripts/k8s/helm_manager.sh"
+      [[ -f "$script" ]] && bash "$script" || helm "$@"
+      ;;
+    htest|helm-test)
+      local script="$HOME/.local/share/chandler/scripts/k8s/helm_template_test.sh"
+      [[ -f "$script" ]] && bash "$script" "$@" || echo "helm_template_test.sh not installed"
+      ;;
+    hlint|helm-lint)
+      local script="$HOME/.local/share/chandler/scripts/k8s/helm_lint.sh"
+      [[ -f "$script" ]] && bash "$script" "$@" || echo "helm_lint.sh not installed"
+      ;;
+    ylint|yaml-lint)
+      local script="$HOME/.local/share/chandler/scripts/k8s/yaml_lint.sh"
+      [[ -f "$script" ]] && bash "$script" "$@" || echo "yaml_lint.sh not installed"
+      ;;
+    kust|kustomize)
+      local script="$HOME/.local/share/chandler/scripts/k8s/kustomize_check.sh"
+      [[ -f "$script" ]] && bash "$script" "$@" || echo "kustomize_check.sh not installed"
+      ;;
+    argo|argocd)
+      local script="$HOME/.local/share/chandler/scripts/k8s/argocd_manager.sh"
+      [[ -f "$script" ]] && bash "$script" "$@" || echo "argocd_manager.sh not installed"
+      ;;
+    b64|base64)
+      local script="$HOME/.local/share/chandler/scripts/k8s/base64_secret.sh"
+      [[ -f "$script" ]] && bash "$script" "$@" || echo "base64_secret.sh not installed"
+      ;;
+    ver|version)    kubectl version --short 2>/dev/null || kubectl version "$@" ;;
+    ctx)            kctx "$@" ;;
+    ns-switch)      kens "$@" ;;
+    # Passthrough: `k get svc`, `k delete pod foo`, etc.
+    *)              kubectl "$sub" "$@" ;;
+  esac
+}
+
+# -----------------------------------------------------------------------------
+# aw  -  AWS CLI dispatcher
+# -----------------------------------------------------------------------------
+# Usage:
+#   aw                    -> show this cheat sheet
+#   aw id                 -> who am I in AWS (account / role / ARN)
+#   aw <anything>         -> aws <anything>   (passthrough)
+aw() {
+  if [[ $# -eq 0 ]]; then
+    cat <<'EOF'
+aw - AWS CLI shortcuts
+-----------------------------------------------------------------
+  aw                      show this help
+  id | whoami             caller identity (account, user, ARN)
+  profiles                list configured profiles
+  regions                 list enabled regions
+  s3 | buckets            list S3 buckets
+  ec2 | instances         list EC2 instances
+  ec2c                    SSM into a running instance (TUI, ec2_connect.sh)
+  logs | cw               CloudWatch Logs tail/search (cw_logs.sh)
+  sg                      security-group audit (sg_audit.sh)
+  keys                    IAM access-key age audit (iam_key_audit.sh)
+  cert                    ACM certificate expiry report (cert_expiry.sh)
+  cost                    cost snapshot: today / MTD / top services
+  ami                     find latest AMIs by name pattern (ami_finder.sh)
+  login                   AWS SSO login   (TUI, from sso_login)
+  profile                 set SSO profile (TUI, from sso_profile)
+  ssm <name> [prof] [reg] start SSM session (from ssm_session)
+-----------------------------------------------------------------
+  Anything else is passed straight to aws, e.g.:
+  aw s3 ls s3://bucket | aw ec2 describe-vpcs
+EOF
+    return 0
+  fi
+
+  local sub="$1"; shift || true
+
+  case "$sub" in
+    h|help)
+      aw ;;
+    id|whoami)
+      aws sts get-caller-identity "$@" ;;
+    profiles)
+      aws configure list-profiles "$@" ;;
+    regions)
+      aws account list-regions \
+        --region "${AWS_REGION:-us-east-1}" \
+        --query "Regions[?RegionOptStatus!='DISABLED'].RegionName" \
+        --output text 2>/dev/null | tr '\t' '\n' | sort \
+        || aws ec2 describe-regions \
+            --query "Regions[].RegionName" --output text | tr '\t' '\n' | sort
+      ;;
+    s3|buckets)
+      aws s3 ls "$@" ;;
+    ec2|instances)
+      aws ec2 describe-instances \
+        --query "Reservations[].Instances[].[InstanceId,State.Name,PrivateIpAddress,Tags[?Key=='Name'].Value|[0]]" \
+        --output table "$@" ;;
+    ec2c)
+      local script="$HOME/.local/share/chandler/scripts/aws/ec2_connect.sh"
+      [[ -f "$script" ]] && bash "$script" || echo "ec2_connect.sh not installed" ;;
+    logs|cw)
+      local script="$HOME/.local/share/chandler/scripts/aws/cw_logs.sh"
+      [[ -f "$script" ]] && bash "$script" || echo "cw_logs.sh not installed" ;;
+    sg)
+      local script="$HOME/.local/share/chandler/scripts/aws/sg_audit.sh"
+      [[ -f "$script" ]] && bash "$script" || echo "sg_audit.sh not installed" ;;
+    keys)
+      local script="$HOME/.local/share/chandler/scripts/aws/iam_key_audit.sh"
+      [[ -f "$script" ]] && bash "$script" || echo "iam_key_audit.sh not installed" ;;
+    cert)
+      local script="$HOME/.local/share/chandler/scripts/aws/cert_expiry.sh"
+      [[ -f "$script" ]] && bash "$script" || echo "cert_expiry.sh not installed" ;;
+    cost)
+      local script="$HOME/.local/share/chandler/scripts/aws/cost_snapshot.sh"
+      [[ -f "$script" ]] && bash "$script" || echo "cost_snapshot.sh not installed" ;;
+    ami)
+      local script="$HOME/.local/share/chandler/scripts/aws/ami_finder.sh"
+      [[ -f "$script" ]] && bash "$script" || echo "ami_finder.sh not installed" ;;
+    login)
+      # Reuse the interactive SSO login helper if present.
+      if command -v sso_login >/dev/null 2>&1; then sso_login "$@"; else aws sso login "$@"; fi ;;
+    profile)
+      if command -v sso_profile >/dev/null 2>&1; then sso_profile "$@"; else echo "sso_profile helper not available."; return 1; fi ;;
+    ssm)
+      if command -v ssm_session >/dev/null 2>&1; then ssm_session "$@"; else echo "ssm_session helper not available."; return 1; fi ;;
+    # Passthrough: `aw s3 cp ...`, `aw iam list-users`, etc.
+    *)
+      aws "$sub" "$@" ;;
+  esac
+}
+
+# -----------------------------------------------------------------------------
+# tf  -  terraform dispatcher
+# -----------------------------------------------------------------------------
+# Usage:
+#   tf                    -> show this cheat sheet
+#   tf ws | workspace     -> list / select workspace
+#   tf state [...]        -> state explorer (tf_state.sh)
+#   tf plan               -> plan
+#   tf apply              -> apply
+#   tf unlock             -> force-unlock (with confirm)
+#   tf <anything>         -> terraform <anything>   (passthrough)
+tf() {
+  if [[ $# -eq 0 ]]; then
+    cat <<'EOF'
+tf - terraform shortcuts
+-----------------------------------------------------------------
+  tf                      show this help
+  ws | workspace          list workspaces (or pick with TUI)
+  ws <name>               switch to workspace <name>
+  state [list|find|show|count|browse]   state explorer
+  plan                    terraform plan
+  apply                   terraform apply (will prompt)
+  unlock                  force-unlock (interactive confirm)
+  fmt | format            terraform fmt -recursive
+  validate                terraform validate
+-----------------------------------------------------------------
+  Anything else is passed straight to terraform, e.g.:
+  tf init | tf import aws_instance.foo i-1234567890
+EOF
+    return 0
+  fi
+
+  local sub="$1"; shift || true
+
+  case "$sub" in
+    h|help) tf ;;
+    ws|workspace)
+      if ! command -v terraform >/dev/null 2>&1; then echo "terraform not installed."; return 1; fi
+      if [[ -z "${1:-}" ]]; then
+        current=$(terraform workspace show 2>/dev/null || echo "?")
+        picked=$(terraform workspace list 2>/dev/null | sed 's/[* ]//g' | grep -v '^$' \
+          | bash "$HOME/.local/share/chandler/scripts/misc/tui_select.sh" \
+              --title "tf workspaces (current: $current)" --prompt "ws> ") || true
+        [[ -n "$picked" ]] && terraform workspace select "$picked"
+      else
+        terraform workspace select "$@"
+      fi
+      ;;
+    state)
+      local script="$HOME/.local/share/chandler/scripts/tf/tf_state.sh"
+      if [[ -f "$script" ]]; then bash "$script" "$@"; else terraform state list; fi
+      ;;
+    plan)     terraform plan "$@" ;;
+    apply)    terraform apply "$@" ;;
+    unlock)
+      echo "Force-unlock is dangerous if the lock is genuine."
+      terraform state list >/dev/null 2>&1 || { echo "Not a terraform project."; return 1; }
+      read -r -p "Paste the lock ID (or Enter to abort): " LOCK
+      [[ -z "$LOCK" ]] && { echo "Aborted."; return 0; }
+      terraform force-unlock "$LOCK"
+      ;;
+    fmt|format)   terraform fmt -recursive "$@" ;;
+    validate)     terraform init -backend=false >/dev/null 2>&1; terraform validate "$@" ;;
+    *)            terraform "$sub" "$@" ;;
+  esac
+}

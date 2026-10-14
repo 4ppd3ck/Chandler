@@ -1,0 +1,10 @@
+chandler
+release/
+chandler.exe
+config.env
+tmp/
+claim/
+gitadd.md
+.DS_Store
+assets/custom-scripts/config
+*_test.go

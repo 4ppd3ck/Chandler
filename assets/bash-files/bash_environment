@@ -1,0 +1,52 @@
+#custom
+alias brave="~/.local/bin/brave.AppImage"
+alias helium="~/.local/bin/helium.AppImage"
+
+# ---- Kubernetes helpers (custom/k8s/) ----
+alias k8screds="~/.local/share/chandler/scripts/k8s/add_yaml_to_kconf.sh"
+alias k_doctor="~/.local/share/chandler/scripts/k8s/k_doctor.sh"
+alias k_cleanup="~/.local/share/chandler/scripts/k8s/k_cleanup.sh"
+alias k_top="~/.local/share/chandler/scripts/k8s/k_top.sh"
+alias k_restart="~/.local/share/chandler/scripts/k8s/k_restart.sh"
+alias k_forward="~/.local/share/chandler/scripts/k8s/k_forward.sh"
+alias k_events="~/.local/share/chandler/scripts/k8s/k_events.sh"
+alias helm_manager="~/.local/share/chandler/scripts/k8s/helm_manager.sh"
+alias helm_lint="~/.local/share/chandler/scripts/k8s/helm_lint.sh"
+alias htest="~/.local/share/chandler/scripts/k8s/helm_template_test.sh"
+alias yaml_lint="~/.local/share/chandler/scripts/k8s/yaml_lint.sh"
+alias kustomize_check="~/.local/share/chandler/scripts/k8s/kustomize_check.sh"
+alias argocd_mgr="~/.local/share/chandler/scripts/k8s/argocd_manager.sh"
+alias b64="~/.local/share/chandler/scripts/k8s/base64_secret.sh"
+alias decode_jwt="~/.local/share/chandler/scripts/k8s/decode_jwt.sh"
+
+# ---- AWS helpers (custom/aws/) ----
+alias s3_local_copy="~/.local/share/chandler/scripts/aws/s3_local_copy.sh"
+alias local_s3_upload="~/.local/share/chandler/scripts/aws/local_s3_upload.sh"
+alias s3_local_objects="~/.local/share/chandler/scripts/aws/s3_local_objects.sh"
+alias s3_date_download="~/.local/share/chandler/scripts/aws/s3_date_download.sh"
+alias cw_logs="~/.local/share/chandler/scripts/aws/cw_logs.sh"
+alias sg_audit="~/.local/share/chandler/scripts/aws/sg_audit.sh"
+alias iam_key_audit="~/.local/share/chandler/scripts/aws/iam_key_audit.sh"
+alias ec2_connect="~/.local/share/chandler/scripts/aws/ec2_connect.sh"
+alias cost_snapshot="~/.local/share/chandler/scripts/aws/cost_snapshot.sh"
+alias ami_finder="~/.local/share/chandler/scripts/aws/ami_finder.sh"
+alias cert_expiry="~/.local/share/chandler/scripts/aws/cert_expiry.sh"
+alias env_diff="~/.local/share/chandler/scripts/aws/env_diff.sh"
+
+# ---- Terraform helpers (custom/tf/) ----
+alias tf_state="~/.local/share/chandler/scripts/tf/tf_state.sh"
+
+# ---- Misc / general helpers (custom/misc/) ----
+alias fmt="~/.local/share/chandler/scripts/misc/fmt_yaml_json.sh"
+alias port_check="~/.local/share/chandler/scripts/misc/port_check.sh"
+alias nslookup_all="~/.local/share/chandler/scripts/misc/nslookup_all.sh"
+alias git_cleanup="~/.local/share/chandler/scripts/misc/git_cleanup.sh"
+alias docker_prune="~/.local/share/chandler/scripts/misc/docker_prune.sh"
+alias ssh_key_gen="~/.local/share/chandler/scripts/misc/ssh_key_audit.sh gen"
+alias ssh_key_check="~/.local/share/chandler/scripts/misc/ssh_key_audit.sh"
+alias fzf_setup="source ~/.local/share/chandler/scripts/misc/fzf_setup.sh"
+alias set_cursor="source ~/.local/share/chandler/scripts/misc/set_cursor.sh"
+
+alias git.="cd ~/gitprojects"
+alias bin.="cd ~/.local/bin"
+

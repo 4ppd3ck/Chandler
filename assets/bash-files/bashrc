@@ -1,0 +1,59 @@
+ # .bashrc
+
+# Source global definitions
+if [ -f /etc/bashrc ]; then
+    . /etc/bashrc
+fi
+
+# User specific environment
+if ! [[ $PATH =~ "$HOME/.local/bin:$HOME/bin:" ]]; then
+    PATH="$HOME/.local/bin:$HOME/bin:$PATH"
+fi
+export PATH
+
+# User specific aliases and functions
+if [ -d ~/.bashrc.d ]; then
+    for rc in ~/.bashrc.d/*; do
+        if [ -f "$rc" ]; then
+            . "$rc"
+        fi
+    done
+fi
+
+unset rc
+
+# Generated for envman. Do not edit.
+[ -s "$HOME/.config/envman/load.sh" ] && source "$HOME/.config/envman/load.sh"
+[ -f "$HOME/.bash_environment" ] && source "$HOME/.bash_environment"
+[ -f "$HOME/.bash_function" ] && source "$HOME/.bash_function"
+[ -f "$HOME/.aws_environment" ] && source "$HOME/.aws_environment"
+[ -f "$HOME/.commands_environment" ] && source "$HOME/.commands_environment"
+
+# User specific aliases and functions
+#PS1='\u@\h:\w\$ '
+
+#: <<'END_COMMENT'
+PROMPT_COMMAND=__prompt_command
+
+__prompt_command() {
+    local EXIT="$?"
+
+    # Load color variables
+    local RED='\[\033[0;31m\]'
+    local GREEN='\[\033[0;32m\]'
+    local YELLOW='\[\033[0;33m\]'
+    local RESET='\[\033[0m\]'
+
+    # Build the prompt
+    PS1="${RED}pwd${RESET}:${GREEN}\w${RESET} "
+    PS1+="$(kubectl_prompt_info) "
+    PS1+="$(git_branch_info) "
+    if [ -n "$sso_selected_profile" ]; then
+        PS1+="${RED}sso_profile${RESET}:${GREEN}$SSO_CURRENT_PROFILE${RESET} "
+    fi
+    if [[ -n $AWS_CURRENT_PROFILE ]]; then
+        PS1+="${RED}aws${RESET}:${GREEN}$AWS_CURRENT_PROFILE${RESET} "
+    fi
+    PS1+="\n\$ "
+}
+#END_COMMENT

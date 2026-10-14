@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test ./...
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - name: Shell script syntax
+        run: |
+          bash -n scripts/build.sh scripts/release.sh
+          for f in assets/scripts/*.sh; do bash -n "$f"; done
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Build release artifacts
+        run: scripts/release.sh
+      - name: Verify artifact set
+        run: |
+          set -eu
+          for f in \
+            chandler-darwin-arm64 chandler-darwin-arm64-app.zip chandler-darwin-arm64.tar.gz \
+            chandler-darwin-amd64 chandler-darwin-amd64-app.zip chandler-darwin-amd64.tar.gz \
+            chandler-linux-arm chandler-linux-arm.tar.gz \
+            chandler-linux-arm64 chandler-linux-arm64.tar.gz \
+            chandler-linux-amd64 chandler-linux-amd64.tar.gz \
+            chandler-windows-amd64.exe chandler-windows-amd64.zip \
+            chandler-windows-arm64.exe chandler-windows-arm64.zip \
+            SHA256SUMS; do
+            test -f "release/$f" || { echo "missing release/$f"; exit 1; }
+          done
+          (cd release && sha256sum -c SHA256SUMS)
+          tar -tzf release/chandler-linux-amd64.tar.gz >/dev/null
+          tar -tzf release/chandler-darwin-arm64.tar.gz >/dev/null
+          unzip -l release/chandler-darwin-arm64-app.zip >/dev/null
+          unzip -l release/chandler-windows-amd64.zip >/dev/null
+          echo "release artifact set OK"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: release/
+
+  build-windows-driver:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Build via scripts\release.bat (filtered)
+        shell: pwsh
+        run: scripts/release.bat darwin/arm64 linux/amd64
+      - name: Verify filtered artifact set
+        shell: pwsh
+        run: |
+          $want = @(
+            'chandler-darwin-arm64', 'chandler-darwin-arm64-app.zip', 'chandler-darwin-arm64.tar.gz',
+            'chandler-linux-amd64', 'chandler-linux-amd64.tar.gz', 'SHA256SUMS'
+          )
+          foreach ($f in $want) {
+            if (-not (Test-Path "release/$f")) { throw "missing release/$f" }
+          }
+          if (Test-Path 'release/chandler-windows-amd64.exe') {
+            throw 'filter leaked a non-requested target'
+          }
+          'windows driver OK'

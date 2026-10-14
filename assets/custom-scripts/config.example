@@ -1,0 +1,21 @@
+[profile <profile-name>]
+sso_session = <profile-name>
+sso_account_id = 000000000000
+sso_role_name = <role-name>
+region = us-east-1
+output = text
+[sso-session <profile-name>]
+sso_start_url = https://d-xxxxxxxxxx.awsapps.com/start/#
+sso_region = us-east-1
+sso_registration_scopes = sso:account:access
+
+[profile <another-profile>]
+sso_session = <another-profile>
+sso_account_id = 000000000000
+sso_role_name = <role-name>
+region = us-east-1
+output = text
+[sso-session <another-profile>]
+sso_start_url = https://d-xxxxxxxxxx.awsapps.com/start/#
+sso_region = us-east-1
+sso_registration_scopes = sso:account:access
