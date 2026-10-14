@@ -3,7 +3,7 @@ release/
 chandler.exe
 config.env
 tmp/
-claim/
+/claim/
 gitadd.md
 .DS_Store
 assets/custom-scripts/config

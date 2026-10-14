@@ -125,9 +125,11 @@ func fatal(err error) {
 	os.Exit(1)
 }
 
-// detectAppName derives the app name from the repo root's folder name:
-// walking up from the working directory stops at the first directory
-// holding go.mod. -name overrides it.
+// detectAppName derives the app name from the repo root's folder name,
+// lowercased so every checkout yields the same artifact names (a GitHub
+// Actions clone lands in Chandler/, a local one in chandler/). Walking up
+// from the working directory stops at the first directory holding go.mod.
+// -name overrides it.
 func detectAppName() (string, error) {
 	dir, err := os.Getwd()
 	if err != nil {
@@ -135,7 +137,7 @@ func detectAppName() (string, error) {
 	}
 	for {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return filepath.Base(dir), nil
+			return strings.ToLower(filepath.Base(dir)), nil
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
