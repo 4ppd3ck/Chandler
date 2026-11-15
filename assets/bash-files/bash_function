@@ -3,7 +3,12 @@ GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 RESET='\033[0m'
 
-shopt -s expand_aliases
+# bash needs expand_aliases for the aliases defined alongside these
+# functions; zsh expands aliases in interactive shells on its own and has
+# no shopt, so the call stays bash-only.
+if [[ -n "${BASH_VERSION:-}" ]]; then
+    shopt -s expand_aliases
+fi
 
 function kubectl_prompt_info() {
     local ctx=$(kubectx -c 2> /dev/null)

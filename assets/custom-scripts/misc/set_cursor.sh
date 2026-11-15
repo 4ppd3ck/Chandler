@@ -14,6 +14,17 @@
 # Cursor shape uses the DEC private mode sequence (\e[5 q).
 # Only applies to xterm-compatible terminals; silently skips others.
 
+# Sourced or executed? bash: BASH_SOURCE[0] differs from $0 when sourced.
+# zsh: $0 IS the sourced file's path, but ZSH_ARGZERO keeps the shell's own
+# argv[0], so the two differ exactly when the file was executed. (Inside a
+# function zsh's $0 is the defining file's path — this helper's — which is
+# what the comparison wants.)
+if [[ -n "${ZSH_VERSION:-}" ]]; then
+  __cursor_was_executed() { [[ "${ZSH_ARGZERO:-}" == "${0}" ]]; }
+else
+  __cursor_was_executed() { [[ "${BASH_SOURCE[0]:-${0}}" == "${0}" ]]; }
+fi
+
 __set_cursor_red() {
   case "${TERM:-}" in
     xterm*|screen*|tmux*|vt100*|linux)
@@ -22,7 +33,7 @@ __set_cursor_red() {
       ;;
     *)
       # Non-interactive or unsupported terminal.
-      if [[ "${BASH_SOURCE[0]:-${0}}" == "${0}" ]]; then
+      if __cursor_was_executed; then
         echo "Unsupported terminal: ${TERM:-unset} (skipping cursor change)."
         echo "Supported: xterm, screen, tmux, vt100, linux."
       fi
@@ -37,7 +48,7 @@ __set_cursor_default() {
 }
 
 # Only parse args / print messages when run directly (not when sourced).
-if [[ "${BASH_SOURCE[0]:-${0}}" == "${0}" ]]; then
+if __cursor_was_executed; then
   case "${1:-}" in
     --reset|-r)
       __set_cursor_default

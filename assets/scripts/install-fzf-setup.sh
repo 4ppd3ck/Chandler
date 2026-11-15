@@ -3,9 +3,19 @@
 set -euo pipefail
 
 
-BASHRC="$HOME/.bashrc"
 MARK_BEGIN="# >>> chandler fzf/cursor setup >>>"
 MARK_END="# <<< chandler fzf/cursor setup <<<"
+
+# ---- Target rc files ----
+# .bashrc always (created when missing, as this script always did);
+# .zshrc when it exists or zsh is the login shell — zsh users get the same
+# opt-in block appended to their own config, never a replacement. The
+# sourced helper scripts (fzf_setup.sh, set_cursor.sh) are zsh-aware, so
+# the identical block works in both shells.
+TARGETS=("$HOME/.bashrc")
+if [[ -f "$HOME/.zshrc" || "${SHELL##*/}" == "zsh" ]]; then
+  TARGETS+=("$HOME/.zshrc")
+fi
 
 FZF_SETUP="$HOME/.local/share/chandler/scripts/misc/fzf_setup.sh"
 SET_CURSOR="$HOME/.local/share/chandler/scripts/misc/set_cursor.sh"
@@ -29,10 +39,10 @@ if [[ ! -f "$SET_CURSOR" && -f "$CUSTOM_SRC/set_cursor.sh" ]]; then
   echo "Copied set_cursor.sh -> $SET_CURSOR"
 fi
 
-# ---- Remove any existing managed block from .bashrc ----
+# ---- Remove any existing managed block from a config file ----
 strip_block() {
-  local tmp
-  [[ ! -f "$BASHRC" ]] && return 0
+  local file="$1" tmp
+  [[ ! -f "$file" ]] && return 0
   # Delete the marker-delimited block (inclusive) with awk; the markers
   # match by suffix too, so blocks written by earlier marker names are
   # stripped. (sed address regexes break here: the markers contain '/' — e.g.
@@ -52,10 +62,10 @@ strip_block() {
       }
     }
     END { for (i = 1; i <= n; i++) print line[i] }
-  ' "$BASHRC" > "$tmp"
+  ' "$file" > "$tmp"
   # Only replace if something actually changed.
-  if ! cmp -s "$tmp" "$BASHRC"; then
-    cp "$tmp" "$BASHRC"
+  if ! cmp -s "$tmp" "$file"; then
+    cp "$tmp" "$file"
   fi
   rm -f "$tmp"
 }
@@ -104,10 +114,11 @@ case "$CHOICE" in
     ;;
 esac
 
-strip_block
-
 if [[ "$MODE" == "remove" ]]; then
-  echo "Removed fzf/cursor setup from $BASHRC."
+  for file in "${TARGETS[@]}"; do
+    strip_block "$file"
+    echo "Removed fzf/cursor setup from $file."
+  done
   echo "Reopen your terminals for the change to take effect."
   exit 0
 fi
@@ -120,8 +131,11 @@ if [[ "$MODE" == "fzf" || "$MODE" == "both" ]]; then
   fi
 fi
 
-touch "$BASHRC"
-build_block "$MODE" >> "$BASHRC"
+for file in "${TARGETS[@]}"; do
+  touch "$file"
+  strip_block "$file"
+  build_block "$MODE" >> "$file"
+  echo "Configured ($MODE) in $file."
+done
 
-echo "Configured ($MODE) in $BASHRC."
 echo "Reopen your terminals for the change to take effect."

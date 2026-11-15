@@ -33,6 +33,29 @@ else
   exit 1
 fi
 
+# ---- checksum verification --------------------------------------------------
+# sha256_of prints a file's SHA256 digest (sha256sum on Linux/Git Bash,
+# shasum -a 256 on macOS).
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+# verify_sha256 <file> <expected-hex> <what>: refuses (exit 1) on a
+# mismatch — nothing unverified moves into LOCAL_BIN.
+verify_sha256() {
+  local file="$1" expected="$2" what="$3" actual
+  actual=$(sha256_of "$file")
+  if [[ "$actual" != "$expected" ]]; then
+    echo "ERROR: $what failed the checksum check (got $actual, want $expected) — refusing to install." >&2
+    exit 1
+  fi
+  echo "$what: checksum verified."
+}
+
 get_latest_version() {
   VERSION=$(curl -fsSL https://api.github.com/repos/kubernetes/kubernetes/releases/latest | jq -r .tag_name | sed 's/^v//')
 }
@@ -52,8 +75,14 @@ get_last_5_versions() {
 }
 get_last_5_versions
 
-echo "Enter the kubectl version you want to download (press Enter for the latest version):"
-read -r USER_VERSION
+# A version may be passed as the first argument — `chandler tool kubectl --
+# 1.31.0` forwards it — so the install runs unattended; without one, ask
+# like the bash original did.
+USER_VERSION="${1:-}"
+if [[ -z "$USER_VERSION" ]]; then
+  echo "Enter the kubectl version you want to download (press Enter for the latest version):"
+  read -r USER_VERSION
+fi
 
 if [[ -z "$USER_VERSION" ]]; then
   echo "No version specified, fetching the latest stable version..."
@@ -71,6 +100,17 @@ fi
 echo "Downloading kubectl from: $DOWNLOAD_URL"
 
 curl --fail -L -o "$KUBECTL_VERSION_DOWNLOAD/kubectl-$VERSION$BIN_EXT" "$DOWNLOAD_URL"
+
+# dl.k8s.io publishes a .sha256 file beside every release artifact —
+# fetch it and verify before the binary is executed or linked.
+CHECKSUM_URL="$DOWNLOAD_URL.sha256"
+EXPECTED=$(curl -fsSL "$CHECKSUM_URL" 2>/dev/null | awk '{print $1}')
+if [[ -z "$EXPECTED" ]]; then
+  echo "ERROR: could not fetch the official kubectl checksum from $CHECKSUM_URL — refusing to install an unverified binary." >&2
+  exit 1
+fi
+verify_sha256 "$KUBECTL_VERSION_DOWNLOAD/kubectl-$VERSION$BIN_EXT" "$EXPECTED" "kubectl $VERSION ($OS/$ARCH)"
+
 chmod +x "$KUBECTL_VERSION_DOWNLOAD/kubectl-$VERSION$BIN_EXT"
 
 if [[ "$OS" == "windows" ]]; then
@@ -89,6 +129,9 @@ if ! command -v kubectx >/dev/null 2>&1 || ! command -v kubens >/dev/null 2>&1; 
       echo "Skipping kubectx/kubens: on macOS they need Homebrew (brew install kubectx)."
     fi
   else
+    # The kubectx/kubens release publishes raw scripts with no checksums —
+    # installed without verification (pinned version, small attack surface).
+    echo "note: kubectx/kubens publish no checksums — installing without verification."
     if ! command -v kubens >/dev/null 2>&1; then
       echo "Downloading kubens binary..."
       curl -fL "https://github.com/ahmetb/kubectx/releases/download/v0.9.5/kubens" -o "$SCRIPT_TMPDIR/kubens"

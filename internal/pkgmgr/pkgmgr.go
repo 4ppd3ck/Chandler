@@ -26,6 +26,11 @@ var probesPerOS = map[string][]probe{
 		{bin: "zypper", manager: "zypper"},
 		{bin: "brew", manager: "brew"},
 	},
+	"freebsd": {
+		// FreeBSD's package manager; installs want root (or sudo — the
+		// child inherits the terminal, so a sudo prompt works).
+		{bin: "pkg", manager: "pkg"},
+	},
 	"windows": {
 		{bin: "choco", manager: "choco"},
 		{bin: "scoop", manager: "scoop"},
@@ -61,6 +66,8 @@ func InstallPkg(manager, brewPkg, aptPkg, dnfPkg, chocoPkg string) error {
 		return run("pacman", "-Sy", "--noconfirm", dnfPkg)
 	case "zypper":
 		return run("zypper", "--non-interactive", "install", dnfPkg)
+	case "pkg": // FreeBSD
+		return run("pkg", "install", "-y", dnfPkg)
 	case "choco":
 		return run("choco", "install", chocoPkg, "-y")
 	case "scoop":

@@ -56,6 +56,7 @@ else
 fi
 
 # Download Helium Browser as AppImage
+echo "note: the Helium release publishes no checksums — installing without verification."
 wget -O "$SCRIPT_TMPDIR/helium.AppImage" "$DOWNLOAD_URL"
 cp -p "$SCRIPT_TMPDIR/helium.AppImage" "$LOCAL_BIN/"
 chmod +x "$LOCAL_BIN/helium.AppImage"

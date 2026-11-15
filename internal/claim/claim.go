@@ -16,8 +16,11 @@ import (
 	"fmt"
 )
 
-// claim.bin is the sealed blob (written by claim/seal.go); without this
-// directive the binary ships an empty seal and no key can ever open it.
+// claim.bin is the sealed blob, sealed offline with the 32-byte key the
+// author alone keeps — the key, and the small sealing tool that produced
+// this blob, are not in this repo (sealing is a lock with one key).
+// Without this directive the binary ships an empty seal and no key can
+// ever open it.
 //
 //go:embed claim.bin
 var sealed []byte

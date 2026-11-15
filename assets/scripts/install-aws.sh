@@ -26,6 +26,7 @@ mkdir -p "$SCRIPT_TMPDIR" "$SCRIPT_DIR" "$LOCAL_BIN"
 # mangling the msiexec flags into paths.
 if [[ "$OS" == "windows" ]]; then
   echo "Windows detected: installing AWS CLI v2 (MSI)..."
+  echo "note: AWS publishes no machine-readable checksum for the CLI MSI — installing without verification."
   curl --fail -L -o "$SCRIPT_TMPDIR/AWSCLIV2.msi" \
     "https://awscli.amazonaws.com/AWSCLIV2.msi"
   msiexec //i "$(cygpath -w "$SCRIPT_TMPDIR/AWSCLIV2.msi")" //passive //norestart
@@ -35,13 +36,22 @@ if [[ "$OS" == "windows" ]]; then
   exit 0
 fi
 
-# macOS: CLI via the official universal bundle; SSM plugin via brew cask.
+# macOS: there is no official exe bundle — every awscli-exe-macos-* URL
+# 404s; the pkg is AWS's only macOS artifact. Homebrew installs without
+# sudo and is the same channel the SSM plugin below uses; without brew,
+# the official pkg installs through `sudo installer` (the child inherits
+# the terminal, so the sudo prompt reaches you).
 if [[ "$OS" == "darwin" ]]; then
-  echo "macOS detected: installing AWS CLI (universal) ..."
-  curl --fail -L -o "$SCRIPT_TMPDIR/awscliv2.zip" \
-    "https://awscli.amazonaws.com/awscli-exe-macos-universal.zip"
-  unzip -q "$SCRIPT_TMPDIR/awscliv2.zip" -d "$SCRIPT_TMPDIR"
-  "$SCRIPT_TMPDIR/aws/install" -i "$LOCAL_BIN/aws-cli" -b "$LOCAL_BIN" --update
+  if command -v brew >/dev/null 2>&1; then
+    echo "macOS detected: installing AWS CLI via Homebrew..."
+    brew install awscli
+  else
+    echo "macOS detected: installing AWS CLI (official pkg — sudo will prompt)..."
+    echo "note: AWS publishes no machine-readable checksum for the CLI pkg — installing without verification."
+    curl --fail -L -o "$SCRIPT_TMPDIR/AWSCLIV2.pkg" \
+      "https://awscli.amazonaws.com/AWSCLIV2.pkg"
+    sudo installer -pkg "$SCRIPT_TMPDIR/AWSCLIV2.pkg" -target /
+  fi
   if ! command -v session-manager-plugin >/dev/null 2>&1; then
     if command -v brew >/dev/null 2>&1; then
       echo "Installing Session Manager plugin via Homebrew..."
@@ -113,6 +123,7 @@ if ! command -v unzip >/dev/null 2>&1; then
   echo "unzip is required to extract the AWS CLI bundle — install it (apt/dnf install unzip) and re-run." >&2
   exit 1
 fi
+echo "note: AWS publishes no machine-readable checksum for the CLI bundle — installing without verification."
 curl --fail -L -o "$SCRIPT_TMPDIR/awscliv2.zip" \
   "https://awscli.amazonaws.com/awscli-exe-${OS}-${ARCH}.zip"
 unzip -q "$SCRIPT_TMPDIR/awscliv2.zip" -d "$SCRIPT_TMPDIR"

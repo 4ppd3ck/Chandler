@@ -39,6 +39,29 @@ extract_zip() {
   fi
 }
 
+# ---- checksum verification --------------------------------------------------
+# sha256_of prints a file's SHA256 digest (sha256sum on Linux/Git Bash,
+# shasum -a 256 on macOS).
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+# verify_sha256 <file> <expected-hex> <what>: refuses (exit 1) on a
+# mismatch — nothing unverified moves into LOCAL_BIN.
+verify_sha256() {
+  local file="$1" expected="$2" what="$3" actual
+  actual=$(sha256_of "$file")
+  if [[ "$actual" != "$expected" ]]; then
+    echo "ERROR: $what failed the checksum check (got $actual, want $expected) — refusing to install." >&2
+    exit 1
+  fi
+  echo "$what: checksum verified."
+}
+
 if [[ "$ARCH" == "x86_64" ]]; then
   ARCH="amd64"
 elif [[ "$ARCH" == "aarch64" || "$ARCH" == "arm64" ]]; then
@@ -55,13 +78,27 @@ if ! command -v fzf >/dev/null 2>&1; then
   if [[ "$OS" == "windows" ]]; then
     DOWNLOAD_URL="https://github.com/junegunn/fzf/releases/download/v$VERSION/fzf-${VERSION}-windows_${ARCH}.zip"
     ARCHIVE="fzf-$VERSION.zip"
+    ASSET_NAME="fzf-${VERSION}-windows_${ARCH}.zip"
   else
     DOWNLOAD_URL="https://github.com/junegunn/fzf/releases/download/v$VERSION/fzf-${VERSION}-${OS}_${ARCH}.tar.gz"
     ARCHIVE="fzf-$VERSION.tar.gz"
+    ASSET_NAME="fzf-${VERSION}-${OS}_${ARCH}.tar.gz"
   fi
   echo "Downloading fzf from: $DOWNLOAD_URL"
 
   curl --fail -L -o "$SCRIPT_TMPDIR/$ARCHIVE" "$DOWNLOAD_URL"
+
+  # The fzf release publishes fzf_<version>_checksums.txt (underscores)
+  # covering every asset — fetch this platform's line and verify the
+  # archive before it is extracted.
+  SUMS_URL="https://github.com/junegunn/fzf/releases/download/v$VERSION/fzf_${VERSION}_checksums.txt"
+  EXPECTED=$(curl -fsSL "$SUMS_URL" 2>/dev/null | awk -v name="$ASSET_NAME" '$2 == name { print $1 }')
+  if [[ -z "$EXPECTED" ]]; then
+    echo "ERROR: could not fetch the official fzf checksum for $ASSET_NAME from $SUMS_URL — refusing to install an unverified archive." >&2
+    exit 1
+  fi
+  verify_sha256 "$SCRIPT_TMPDIR/$ARCHIVE" "$EXPECTED" "fzf $VERSION ($OS/$ARCH)"
+
   EXTRACT_DIR="$(mktemp -d)"
   if [[ "$OS" == "windows" ]]; then
     extract_zip "$SCRIPT_TMPDIR/$ARCHIVE" "$EXTRACT_DIR"
@@ -97,6 +134,34 @@ cp -r "$BASHFILES_DIR/commands_environment" "$HOME/.commands_environment"
 
 backup_file "$HOME/.bashrc"
 cp -r "$BASHFILES_DIR/bashrc" "$HOME/.bashrc"
+
+# ---- Wire the same helpers into zsh (~/.zshrc) ----
+# zsh never reads .bashrc, so without this the aliases, the k/aw/tf
+# dispatchers and the SSO helpers exist only in bash. When a zsh config
+# exists — or zsh is the login shell and none exists yet — append a
+# marker-guarded block that sources the same four dotfiles (their content
+# is written to be zsh-compatible: the bash-only bits branch on
+# $BASH_VERSION). The user's own .zshrc is never replaced, only appended
+# to; the block carries its own `chandler shell tools` markers so it is
+# idempotent here and `chandler uninstall` strips it.
+ZSHRC="$HOME/.zshrc"
+ZSH_MARK_BEGIN="# >>> chandler shell tools >>>"
+ZSH_MARK_END="# <<< chandler shell tools <<<"
+if [[ -f "$ZSHRC" || "${SHELL##*/}" == "zsh" ]]; then
+  if ! grep -qF "$ZSH_MARK_BEGIN" "$ZSHRC" 2>/dev/null; then
+    {
+      echo ""
+      echo "$ZSH_MARK_BEGIN"
+      echo "# Added by install-bashtools.sh — sources the chandler shell helpers in zsh."
+      echo '[ -f "$HOME/.bash_environment" ]   && source "$HOME/.bash_environment"'
+      echo '[ -f "$HOME/.bash_function" ]     && source "$HOME/.bash_function"'
+      echo '[ -f "$HOME/.aws_environment" ]   && source "$HOME/.aws_environment"'
+      echo '[ -f "$HOME/.commands_environment" ] && source "$HOME/.commands_environment"'
+      echo "$ZSH_MARK_END"
+    } >> "$ZSHRC"
+    echo "Wired chandler shell helpers into $ZSHRC"
+  fi
+fi
 
 # ---- Create symlink to AWS config (ensure ~/.aws exists) ----
 mkdir -p "$HOME/.aws"

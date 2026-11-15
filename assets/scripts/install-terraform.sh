@@ -31,6 +31,29 @@ extract_zip() {
   fi
 }
 
+# ---- checksum verification --------------------------------------------------
+# sha256_of prints a file's SHA256 digest (sha256sum on Linux/Git Bash,
+# shasum -a 256 on macOS).
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+# verify_sha256 <file> <expected-hex> <what>: refuses (exit 1) on a
+# mismatch — nothing unverified moves into LOCAL_BIN.
+verify_sha256() {
+  local file="$1" expected="$2" what="$3" actual
+  actual=$(sha256_of "$file")
+  if [[ "$actual" != "$expected" ]]; then
+    echo "ERROR: $what failed the checksum check (got $actual, want $expected) — refusing to install." >&2
+    exit 1
+  fi
+  echo "$what: checksum verified."
+}
+
 get_latest_version() {
   VERSION=$(curl -fsSL https://api.github.com/repos/hashicorp/terraform/releases/latest | jq -r .tag_name | sed 's/^v//')
 }
@@ -50,8 +73,14 @@ get_last_5_stable_versions() {
 }
 get_last_5_stable_versions
 
-echo "Enter the terraform version you want to download (press Enter for the latest version):"
-read -r USER_VERSION
+# A version may be passed as the first argument — `chandler tool terraform --
+# 1.9.0` forwards it — so the install runs unattended; without one, ask
+# like the bash original did.
+USER_VERSION="${1:-}"
+if [[ -z "$USER_VERSION" ]]; then
+  echo "Enter the terraform version you want to download (press Enter for the latest version):"
+  read -r USER_VERSION
+fi
 
 if [[ -z "$USER_VERSION" ]]; then
   echo "No version specified, fetching the latest stable version..."
@@ -74,6 +103,17 @@ DOWNLOAD_URL="https://releases.hashicorp.com/terraform/$VERSION/terraform_${VERS
 echo "Downloading terraform from: $DOWNLOAD_URL"
 
 curl --fail -L -o "$SCRIPT_TMPDIR/terraform_$VERSION.zip" "$DOWNLOAD_URL"
+
+# HashiCorp publishes SHA256SUMS for every release — fetch this
+# platform's line and verify the zip before it is extracted.
+SUMS_URL="https://releases.hashicorp.com/terraform/$VERSION/terraform_${VERSION}_SHA256SUMS"
+ZIP_NAME="terraform_${VERSION}_${OS}_${ARCH}.zip"
+EXPECTED=$(curl -fsSL "$SUMS_URL" 2>/dev/null | awk -v name="$ZIP_NAME" '$2 == name { print $1 }')
+if [[ -z "$EXPECTED" ]]; then
+  echo "ERROR: could not fetch the official terraform checksum for $ZIP_NAME from $SUMS_URL — refusing to install an unverified archive." >&2
+  exit 1
+fi
+verify_sha256 "$SCRIPT_TMPDIR/terraform_$VERSION.zip" "$EXPECTED" "terraform $VERSION ($OS/$ARCH)"
 
 echo "Extracting terraform_$VERSION.zip..."
 extract_zip "$SCRIPT_TMPDIR/terraform_$VERSION.zip" "$SCRIPT_TMPDIR"

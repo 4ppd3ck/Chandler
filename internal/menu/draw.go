@@ -49,7 +49,14 @@ func Geometry(w io.Writer) (cols, lines int, showLogo bool) {
 	return cols, lines, lines >= logoMinLines
 }
 
-func Draw(w io.Writer, sel int, cols int, showLogo bool, osName, pkgMgr string, c Colors) int {
+// Draw renders the menu block and returns its height. The checked map
+// drives the multi-select's ✓ column: installer-backed entries the user
+// space-checked get a green check between the number and the label; the
+// bulk/config/update/uninstall entries have no check column content.
+// The installed map marks entries whose tool is already present — a
+// dim `· installed` suffix on the description, plus the installed count
+// in the status line.
+func Draw(w io.Writer, sel int, cols int, showLogo bool, osName, pkgMgr string, c Colors, checked map[int]bool, installed map[string]bool) int {
 	var out []string
 
 	if showLogo {
@@ -66,29 +73,35 @@ func Draw(w io.Writer, sel int, cols int, showLogo bool, osName, pkgMgr string, 
 	if pkgMgr != "" {
 		pkgPart = "pkg: " + pkgMgr
 	}
-	out = append(out, c.BGreen+"✓ prerequisites ready"+c.Reset+"   "+
+	count, total := installedCount(installed)
+	out = append(out, c.BGreen+"✓ prerequisites ready"+c.Reset+" · "+
+		c.Green+fmt.Sprintf("%d/%d tools installed", count, total)+c.Reset+"   "+
 		c.Dim+"os: "+osName+" · "+pkgPart+c.Reset)
 	out = append(out, "")
 
 	for i, item := range Items {
 		numstr := fmt.Sprintf("%2d", i+1)
+		check := " "
+		if checked != nil && checked[i] {
+			check = c.BGreen + "✓" + c.Reset
+		}
 		var marker, label, desc string
 		if i == sel {
 			marker = c.BMagenta + "▶" + c.Reset
 			label = c.Bold + item.Label + c.Reset
-			desc = c.Gray + item.Desc
+			desc = c.Gray + item.Desc + installedMark(item.Action, installed, c)
 			numstr = c.BMagenta + numstr + c.Reset
 		} else {
 			marker = " "
 			label = groupColor(c, item.Group) + item.Label + c.Reset
-			desc = c.Dim + item.Desc + c.Reset
+			desc = c.Dim + item.Desc + c.Reset + installedMark(item.Action, installed, c)
 			numstr = c.Dim + numstr + c.Reset
 		}
 		pad := LabelW - utf8.RuneCountInString(item.Label)
 		if pad < 1 {
 			pad = 1
 		}
-		out = append(out, fmt.Sprintf("%s %s  %s%*s%s", marker, numstr, label, pad, "", desc))
+		out = append(out, fmt.Sprintf("%s %s %s  %s%*s%s", marker, numstr, check, label, pad, "", desc))
 	}
 
 	out = append(out, "")
@@ -100,6 +113,27 @@ func Draw(w io.Writer, sel int, cols int, showLogo bool, osName, pkgMgr string, 
 		fmt.Fprint(w, erasePrefix+line+"\n")
 	}
 	return len(out)
+}
+
+// installedCount counts the installer-backed entries whose probe came
+// back positive. nil map (a probe-less render): zero of the known total.
+func installedCount(installed map[string]bool) (count, total int) {
+	total = len(installProbes)
+	for _, ok := range installed {
+		if ok {
+			count++
+		}
+	}
+	return count, total
+}
+
+// installedMark renders the `· installed` suffix for an installer-backed
+// entry whose tool is already present; everything else renders nothing.
+func installedMark(action string, installed map[string]bool, c Colors) string {
+	if installed == nil || !installed[action] {
+		return ""
+	}
+	return "  " + c.Green + "· installed" + c.Reset
 }
 
 func groupColor(c Colors, group string) string {
@@ -114,6 +148,8 @@ func groupColor(c Colors, group string) string {
 		return c.Magenta
 	case "bulk":
 		return c.Cyan
+	case "danger":
+		return c.BRed
 	default:
 		return ""
 	}
@@ -122,6 +158,7 @@ func groupColor(c Colors, group string) string {
 func hints(c Colors) string {
 	return c.BMagenta + "↑↓" + c.Reset + " navigate   " +
 		c.BMagenta + "⏎" + c.Reset + " run   " +
+		c.BMagenta + "␣" + c.Reset + " check   " +
 		c.BMagenta + "1-9" + c.Reset + " select   " +
 		c.BMagenta + "c" + c.Reset + " config   " +
 		c.BMagenta + "u" + c.Reset + " update   " +

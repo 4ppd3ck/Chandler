@@ -50,3 +50,29 @@ alias set_cursor="source ~/.local/share/chandler/scripts/misc/set_cursor.sh"
 alias git.="cd ~/gitprojects"
 alias bin.="cd ~/.local/bin"
 
+# ------------------------------------------------------------------
+# k8sconf — open/edit the kubeconfig (~/.kube/config).
+#
+# Not a switcher: kctx/kubectx and kens/kubens rewrite the active
+# context/namespace for you; this opens the raw YAML for what they
+# cannot do — renames, stale entries, server URLs, certificates.
+#
+# Whatever put a cluster on this machine writes there: k8screds merging
+# the ~/k8sconfig/*.yaml Rancher files, `aws eks update-kubeconfig`,
+# `az aks get-credentials` or `oc login`. Note k8screds REGENERATES the
+# file from ~/k8sconfig on each run, so hand edits to a merged setup
+# belong in the ~/k8sconfig YAMLs, not here. Cloud-context hand edits
+# (current-context, renamed clusters) are safe.
+# Falls back through $EDITOR, $VISUAL, then vi.
+# ------------------------------------------------------------------
+k8sconf() {
+    local conf="$HOME/.kube/config"
+    if [ ! -e "$conf" ]; then
+        echo "No kubeconfig at $conf."
+        echo "Merge one with k8screds (~/k8sconfig/*.yaml), or run"
+        echo "  aws eks update-kubeconfig --name <cluster>   /   az aks get-credentials   /   oc login"
+        return 1
+    fi
+    "${EDITOR:-${VISUAL:-vi}}" "$conf"
+}
+

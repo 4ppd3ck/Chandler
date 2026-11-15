@@ -61,6 +61,7 @@ k - kubectl shortcuts
   k ctx                       switch context   (TUI, from kctx)
   k ns-switch                 switch namespace (TUI, from kens)
   k sa                        get serviceaccounts
+  k conf                      edit the kubeconfig file (switching: kctx)
 -----------------------------------------------------------------
   Anything else is passed straight to kubectl, e.g.:
   k apply -f file.yaml | k get svc -A | k delete pod nginx
@@ -155,6 +156,8 @@ EOF
     ver|version)    kubectl version --short 2>/dev/null || kubectl version "$@" ;;
     ctx)            kctx "$@" ;;
     ns-switch)      kens "$@" ;;
+    conf|config)
+      if command -v k8sconf >/dev/null 2>&1; then k8sconf "$@"; else echo "k8sconf helper not available."; return 1; fi ;;
     # Passthrough: `k get svc`, `k delete pod foo`, etc.
     *)              kubectl "$sub" "$@" ;;
   esac
@@ -175,6 +178,8 @@ aw - AWS CLI shortcuts
   aw                      show this help
   id | whoami             caller identity (account, user, ARN)
   profiles                list configured profiles
+  conf | config           edit the AWS SSO config (~/.aws/config)
+  cred | credentials      edit static access/secret keys (~/.aws/credentials)
   regions                 list enabled regions
   s3 | buckets            list S3 buckets
   ec2 | instances         list EC2 instances
@@ -204,6 +209,10 @@ EOF
       aws sts get-caller-identity "$@" ;;
     profiles)
       aws configure list-profiles "$@" ;;
+    conf|config)
+      if command -v awsconf >/dev/null 2>&1; then awsconf "$@"; else echo "awsconf helper not available."; return 1; fi ;;
+    cred|credentials)
+      if command -v awscreds >/dev/null 2>&1; then awscreds "$@"; else echo "awscreds helper not available."; return 1; fi ;;
     regions)
       aws account list-regions \
         --region "${AWS_REGION:-us-east-1}" \
@@ -309,7 +318,10 @@ EOF
     unlock)
       echo "Force-unlock is dangerous if the lock is genuine."
       terraform state list >/dev/null 2>&1 || { echo "Not a terraform project."; return 1; }
-      read -r -p "Paste the lock ID (or Enter to abort): " LOCK
+      # printf+read, not `read -p`: zsh's -p reads from the coprocess, so
+      # the bash prompt syntax would error there. This works in both.
+      printf '%s' "Paste the lock ID (or Enter to abort): " >&2
+      read -r LOCK
       [[ -z "$LOCK" ]] && { echo "Aborted."; return 0; }
       terraform force-unlock "$LOCK"
       ;;

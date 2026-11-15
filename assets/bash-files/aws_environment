@@ -1,2 +1,46 @@
 #PLACE AWS RELATED ALIASES HERE
 #alias awsstg="ssm_session <SERVER_ID> <PROFILE_NAME> <REGION>"
+
+# This file is chandler's aws_environment, deployed with the Bash-tools
+# install alongside the ~/.local/share/chandler/scripts tree — that
+# reference is how `chandler uninstall` recognizes it.
+
+# ------------------------------------------------------------------
+# awsconf — open/edit the AWS SSO config (~/.aws/config).
+#
+# The Bash-tools install links that path into the deployed scripts tree,
+# whose config is seeded from the template on the first sync; chandler
+# never overwrites it afterwards, so edits through the symlink are safe.
+# This is the SSO side of AWS auth: [sso-session] and [profile] blocks
+# used by `aws sso login` / the sso_login and sso_profile helpers.
+# Falls back through $EDITOR, $VISUAL, then vi.
+# ------------------------------------------------------------------
+awsconf() {
+    local conf="$HOME/.aws/config"
+    if [ ! -e "$conf" ]; then
+        echo "No AWS config at $conf."
+        echo "Seed it with 'chandler update' (or menu option 8), then re-run awsconf."
+        return 1
+    fi
+    "${EDITOR:-${VISUAL:-vi}}" "$conf"
+}
+
+# ------------------------------------------------------------------
+# awscreds — open/edit the static credentials file (~/.aws/credentials).
+#
+# This is the other AWS auth side: plain access/secret keys written as
+# [profile] blocks (or [default]) — what `aws configure` writes, what
+# the aws_profile picker copies from ~/awsconfig/*.txt, and what
+# AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY env vars shadow when set.
+# Long-lived keys only; SSO sessions live in the config via awsconf.
+# Falls back through $EDITOR, $VISUAL, then vi.
+# ------------------------------------------------------------------
+awscreds() {
+    local cred="$HOME/.aws/credentials"
+    if [ ! -e "$cred" ]; then
+        echo "No credentials file at $cred."
+        echo "Create one with 'aws configure', pick keys with aws_profile, or use SSO (sso_login)."
+        return 1
+    fi
+    "${EDITOR:-${VISUAL:-vi}}" "$cred"
+}

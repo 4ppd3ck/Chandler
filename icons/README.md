@@ -28,5 +28,5 @@ They are generated once with an external tool and committed, so plain
     go run github.com/akavel/rsrc@latest -ico icons/chandler.ico -arch amd64 -o rsrc_windows_amd64.syso
     go run github.com/akavel/rsrc@latest -ico icons/chandler.ico -arch arm64 -o rsrc_windows_arm64.syso
 
-Regenerate them only when `chandler.ico` changes; `tools/packager` needs
-no changes (it builds whatever `.syso` files are present).
+Regenerate them only when `chandler.ico` changes; `release.sh`
+needs no changes (it builds whatever `.syso` files are present).

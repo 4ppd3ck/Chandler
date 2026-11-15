@@ -136,5 +136,45 @@ func Sync(src, dst string) (changed int, report []string, err error) {
 		report = append(report, rel)
 		return nil
 	})
-	return changed, report, err
+	if err != nil {
+		return changed, report, err
+	}
+	seeded, err := seedConfig(dst)
+	if err != nil {
+		return changed, report, err
+	}
+	if seeded {
+		changed++
+		report = append(report, "config (seeded from config.example)")
+	}
+	return changed, report, nil
+}
+
+// seedConfig creates dst/config from dst/config.example when the real
+// config is missing. The template ships as config.example — named so the
+// very first sync cannot deploy a placeholder as anyone's live config —
+// while the Bash-tools installer links ~/.aws/config at dst/config, the
+// file `aws` and the SSO helpers read. The bash-era custom/ tree shipped
+// the config directly; in the embedded layout this seed is what keeps
+// that symlink from dangling. Seeding runs once: afterwards config is
+// the user's file and is never overwritten (it is not in the source
+// tree), which is exactly what makes editing it through the symlink safe.
+func seedConfig(dst string) (bool, error) {
+	target := filepath.Join(dst, "config")
+	if _, err := os.Stat(target); err == nil {
+		return false, nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return false, err
+	}
+	data, err := os.ReadFile(filepath.Join(dst, "config.example"))
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil // no template shipped — nothing to seed
+		}
+		return false, err
+	}
+	if err := os.WriteFile(target, data, 0o644); err != nil {
+		return false, err
+	}
+	return true, nil
 }

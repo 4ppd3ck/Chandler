@@ -18,7 +18,7 @@ checkout to drag around at runtime.
 ## Quick start
 
 ```sh
-scripts/build.sh            # macOS / Linux (scripts\build.bat on Windows)
+build.sh                    # macOS / Linux (build.bat on Windows)
 ./chandler
 ```
 
@@ -26,8 +26,8 @@ No arguments opens the interactive menu. For a full artifact set (every
 platform, packaged apps included) use the release script instead:
 
 ```sh
-scripts/release.sh          # macOS / Linux
-scripts\release.bat         # Windows
+release.sh                  # macOS / Linux
+release.bat                 # Windows
 ```
 
 `.gitignore` already ignores the built binary.
@@ -41,6 +41,15 @@ the **full-screen TUI** runs only when stdin and stdout are both terminals
 and the window is at least 60×16; anything else falls back to the **numeric
 menu**. The TUI also degrades to the fallback if raw mode cannot be entered.
 
+The menu also shows what the machine already has: installer-backed entries
+carry a dim `· installed` marker, and the status line counts them
+(`✓ prerequisites ready · 6/10 tools installed`). The probes are cheap —
+`exec.LookPath` for the PATH tools, the AppImage files in `~/.local/bin`,
+and the deployed scripts tree for the Bash tools — and re-run after every
+action, so a row loses its marker the moment its tool lands. The fallback
+numeric menu prints the same facts as `(installed)` tags; `chandler doctor`
+reports the same list with versions.
+
 On terminals shorter than 27 rows the ship banner collapses to a one-line
 header:
 
@@ -52,7 +61,8 @@ header:
 | --- | --- |
 | `↑` / `↓` or `j` / `k` | move the selection |
 | `g` / `Home`, `G` / `End` | jump to the first / last entry |
-| `Enter` / `⏎` | run the selected entry |
+| `Enter` / `⏎` | run the selected entry — or, when entries are checked, all of them in order |
+| `Space` | check the highlighted installer entry for a hand-picked multi-tool run (✓ in the menu; the bulk/config/update/uninstall entries are not checkable) |
 | `1`–`9`, `0` | jump to entry N (10 for `0`); run it if already selected |
 | `c` | re-run the stack/cloud config questions |
 | `u` | sync the embedded custom scripts to `~/.local/share/chandler/scripts` |
@@ -60,12 +70,18 @@ header:
 | `Ctrl-C` | restore the terminal and exit |
 
 After every action the menu redraws (the action's status is ignored, exactly
-like the bash `run_menu_action "$sel" || true`).
+like the bash `run_menu_action "$sel" || true`). Three QoL additions over
+the bash original: the highlighted entry is remembered across runs; a
+resize redraws the menu immediately (SIGWINCH on the unixes, a console
+input-buffer watcher on windows — and the next keypress as the fallback
+everywhere); and Space checks entries for a hand-picked multi-tool run
+that flows through the same confirm, per-tool logs and ✓/✗ summary as the
+bulk actions.
 
 ### Fallback numeric menu
 
-When there is no usable terminal the same 14 entries are offered as a plain
-numbered prompt; an option outside `1`–`14` prints `Invalid option:
+When there is no usable terminal the same 15 entries are offered as a plain
+numbered prompt; an option outside `1`–`15` prints `Invalid option:
 '<option>'.` and exits 1.
 
 ![The fallback numeric menu](docs/screenshots/fallback-menu.png)
@@ -81,16 +97,53 @@ numbered prompt; an option outside `1`–`14` prints `Invalid option:
 | 5 | Install AWS CLI | aws-cli v2 + SSM plugin | cloud |
 | 6 | Install Brave | browser (AppImage) | app |
 | 7 | Install Helium | browser (AppImage) | app |
-| 8 | Install Bash tools | dotfiles + aliases + `k` command | app |
+| 8 | Install Bash tools | dotfiles + aliases + `k` command (bash & zsh) | app |
 | 9 | Setup fzf + cursor | interactive search (opt-in) | setup |
 | 10 | Install everything | runs 1–9 in order | bulk |
 | 11 | Install core only | skips the browsers and the fzf setup | bulk |
 | 12 | Install oc (OpenShift) | OpenShift / kubectl client | k8s |
 | 13 | Config: stacks & cloud | choose the k8s stack + cloud | setup |
 | 14 | Update installed scripts | re-copy `custom/` to `~/.local/share/chandler` | setup |
+| 15 | Uninstall chandler | remove command, scripts & config | danger |
 
 Every action dispatches to a bash installer with stdin/stdout/stderr
-inherited, so each script's own prompts and output reach you unchanged.
+inherited, so each script's own prompts and output reach you unchanged —
+and every run tees its output into `<root>/tmp/logs/<tool>-<timestamp>.log`,
+so a failure's evidence survives the scrollback (the log path is printed
+when an install fails). The bulk runs finish with a ✓/✗ summary table and
+per-tool elapsed time.
+
+### Download verification
+
+The installers verify every download against its official checksum before
+anything lands in `~/.local/bin`: kubectl against dl.k8s.io's `.sha256`,
+helm against get.helm.sh's `.sha256sum`, k9s against its release
+`checksums.sha256`, terraform against HashiCorp's `SHA256SUMS`, and fzf
+against its release checksums file — a missing or mismatching checksum
+refuses the install outright. oc verifies when the mirror publishes a
+checksum and warns otherwise; the AWS CLI, the SSM plugin, the browsers'
+AppImages and kubectx/kubens publish no machine-readable checksums, so
+those installers say so and continue.
+
+### zsh
+
+zsh is wired up end to end, not just the PATH block:
+
+- the PATH block goes into `~/.zshrc` exactly as into `~/.bashrc`; when a
+  zsh login shell (`$SHELL`) has neither file, `~/.zshrc` is created
+  instead of failing with "no compatible shell config file found";
+- **Install Bash tools** (option 8) appends a `# >>> chandler shell tools
+  >>>` block to `~/.zshrc` that sources the same four dotfiles, so the
+  aliases and the `k` / `aw` / `tf` dispatchers work in zsh too. The
+  user's own `.zshrc` is never replaced, only appended to, and the
+  dotfiles are written to be zsh-compatible (the bash-only bits branch on
+  `$BASH_VERSION`);
+- **Setup fzf + cursor** (option 9) writes its opt-in block to both
+  `.bashrc` and `.zshrc`. The sourced helpers are shell-aware: under zsh,
+  Ctrl+R / Ctrl+T / Alt+C come from fzf's own zsh integration
+  (`fzf --zsh`) and Alt+S is a zle widget over the same combined picker;
+- `chandler uninstall` strips every chandler block kind from `.zshrc` as
+  it does from `.bashrc`.
 
 ## Subcommands
 
@@ -99,7 +152,10 @@ inherited, so each script's own prompts and output reach you unchanged.
 | *(none)* | interactive menu (the default) |
 | `update` | re-run the "Update installed scripts" action non-interactively, then refresh the installed `chandler` command |
 | `install` | copy the binary that was run to `~/.local/bin/chandler` and record the root pin |
-| `uninstall` | remove the installed command, the deployed scripts tree (`~/.local/share/chandler`), the root pin, the desktop entry and icons, and every config line chandler wrote; the Bash-tools dotfiles and `~/.aws/config` are restored from their `_bkp_` backups when one exists (credentials and shared tools like jq are never touched) |
+| `tool <name>` | install one menu entry non-interactively — `chandler tool kubectl`, `chandler tool all` (the bulk install; `-y` skips its confirm), `chandler tool` alone lists the names. An argument after `--` reaches the installer script: the version-prompting installers accept a version (`chandler tool kubectl -- 1.31.0`), fzf-setup its choice, the browsers an arch — making those runs fully unattended. Same prerequisite pass, same installers, same logs as the menu |
+| `doctor` | read-only status report: deployment root and pin, `config.env`, PATH and shell-config blocks, prerequisites, installed tools with versions, deployed scripts, installed command. Installs nothing, exits 0; `--json` renders the same facts as JSON |
+| `update-check` | compare this build against the configured release feed (explicit-only, never on startup). Exit codes: 0 current/dev/unconfigured, 1 feed error, 2 a newer release is available. The feed URL is stamped at publish time (`-X main.releasesAPI=…`) or given per-run via `CHANDLER_RELEASES_API` |
+| `uninstall` | remove the installed command, the deployed scripts tree (`~/.local/share/chandler`), the root pin, the desktop entry and icons, and every config line chandler wrote; the Bash-tools dotfiles and `~/.aws/config` are restored from their `_bkp_` backups when one exists (credentials and shared tools like jq are never touched). Also offered as menu entry 15, which ends the menu session after a successful uninstall |
 | `version` | print `chandler <version> (<os>/<arch>, <go>)` — `dev` for a plain `go build` |
 | `help` / `-h` / `--help` | print the usage |
 
@@ -208,41 +264,52 @@ installed tools in `~/.local/bin` are never touched.
 
 ## Release builds
 
-`scripts/release.sh` (or `scripts/release.bat` on Windows) is a thin
-wrapper around `go run ./tools/packager`, which builds the whole artifact
-set into `release/` — stripped, static, cross-compiled binaries plus a
-packaged app per platform — and writes a `SHA256SUMS` covering everything:
+`release.sh` (or `release.bat` on Windows, which shells
+out to the same script through Git Bash) is a self-contained pipeline —
+plain sh, no Go helper tool. It cross-compiles every target, packages it
+per platform, ad-hoc codesigns the darwin artifacts where `codesign`
+exists, and writes a `SHA256SUMS` covering everything:
 
 ```sh
-scripts/release.sh              # every target
-scripts/release.sh linux        # only linux/* targets
-scripts/release.sh darwin/arm64 # a single target
+release.sh              # every target
+release.sh linux        # only linux/* targets
+release.sh darwin/arm64 # a single target
 ```
 
 | Artifact | Platform |
 | --- | --- |
-| `chandler-darwin-arm64` / `-app.zip` / `.tar.gz` | macOS Apple Silicon (binary, app bundle, CLI tarball) |
-| `chandler-darwin-amd64` / `-app.zip` / `.tar.gz` | macOS Intel (binary, app bundle, CLI tarball) |
-| `chandler-linux-amd64` / `.tar.gz` | Linux x86-64 |
-| `chandler-linux-arm64` / `.tar.gz` | Linux 64-bit ARM |
-| `chandler-linux-arm` / `.tar.gz` | Linux 32-bit ARM |
-| `chandler-windows-amd64.exe` / `.zip` | Windows x86-64 |
-| `chandler-windows-arm64.exe` / `.zip` | Windows on ARM |
+| `chandler-darwin-arm64.zip` | macOS Apple Silicon (Chandler.app) |
+| `chandler-darwin-amd64.zip` | macOS Intel (Chandler.app) |
+| `chandler-linux-amd64.zip` | Linux x86-64 |
+| `chandler-linux-arm64.zip` | Linux 64-bit ARM |
+| `chandler-linux-arm.zip` | Linux 32-bit ARM (GOARM=7) |
+| `chandler-linux-riscv64.zip` | Linux RISC-V 64 (SBCs, QEMU) |
+| `chandler-freebsd-amd64.zip` | FreeBSD x86-64 |
+| `chandler-windows-amd64.zip` | Windows x86-64 |
+| `chandler-windows-arm64.zip` | Windows on ARM |
 
-Each `-app.zip` unpacks to a `Chandler.app` carrying the icon, an
+Nine packages, each carrying its platform's binary inside — there are no
+bare binaries beside the packages, and no duplicate payloads. Every
+package is a zip, one archive format for all platforms. The macOS and
+Linux/FreeBSD zips carry unix exec bits (binary, launcher, install.sh), so
+they are built with Info-ZIP `zip`, which preserves them; the Windows zip
+needs no exec bits and falls back to PowerShell's Compress-Archive on a
+Git Bash host.
+
+Each darwin `.zip` unpacks to a `Chandler.app` carrying the icon, an
 `Info.plist` and a launcher that hands the terminal UI to Terminal.app (the
-bare binary sits in `Contents/Resources/`); the matching `.tar.gz` is the CLI
-package — the bare binary, `chandler.icns` and a README. Each Linux `.tar.gz`
-holds the binary, a `chandler.desktop` entry, the hicolor icon set and a
-per-user `install.sh`. Each Windows `.zip` holds `chandler.exe`, `chandler.ico`
-and a README, and the `.exe` files embed the icon in their PE resources via
-the committed `rsrc_windows_*.syso` objects.
+binary sits in `Contents/Resources/chandler` — drag the app to
+`/Applications`, or run that binary directly for CLI use). Each Linux and
+FreeBSD `.zip` holds the binary, a `chandler.desktop` entry, the hicolor
+icon set and a per-user `install.sh`. Each Windows `.zip` holds
+`chandler.exe`, `chandler.ico` and a README, and the `.exe` embeds the icon
+in its PE resources via the committed `rsrc_windows_*.syso` objects.
 
 > **Unsigned artifacts.** Nothing here is code-signed, so Gatekeeper and
 > SmartScreen warn on first run. On macOS clear the quarantine flag with
-> `xattr -dr com.apple.quarantine /Applications/Chandler.app` (or
-> `xattr -d com.apple.quarantine chandler-darwin-arm64` for the bare
-> binary); on Windows choose *More info → Run anyway*, or build locally.
+> `xattr -dr com.apple.quarantine /Applications/Chandler.app` (or on the
+> binary extracted from `Contents/Resources/`); on Windows choose
+> *More info → Run anyway*, or build locally.
 
 ## Platform support
 
@@ -267,8 +334,20 @@ the committed `rsrc_windows_*.syso` objects.
   - the installed command is
     `%USERPROFILE%\.local\bin\chandler.exe` and the synced helpers land in
     `%USERPROFILE%\.local\share\chandler\scripts`.
-- **FreeBSD / OpenBSD / NetBSD / DragonFly** — compiles and has the terminal
-  plumbing, but is untested; package-manager detection reports none.
+- **FreeBSD (amd64)** — a release target with the same desktop bundle as
+  Linux (`.desktop`, `install.sh`, hicolor icons). Prerequisite installs
+  go through `pkg` (root or sudo — the child inherits the terminal). The
+  chandler binary, the TUI, the custom scripts and the terraform, k9s and
+  fzf installers work there; **kubectl and helm have no FreeBSD builds
+  upstream**, so those two installers fail at the download. The terminal
+  plumbing compiles for the whole BSD family but is untested on real
+  FreeBSD hardware.
+- **OpenBSD / NetBSD / DragonFly** — compile and have the terminal
+  plumbing, but are untested; package-manager detection reports none.
+- **linux/riscv64** — a release target (RISC-V SBCs, QEMU). The chandler
+  binary, the TUI and the custom scripts run there; of the installers,
+  only fzf and helm have riscv64 builds upstream — kubectl, terraform and
+  k9s fail at the download.
 - Anything else (solaris, aix, plan9, js/wasm) does not compile.
 
 ## Design notes

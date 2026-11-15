@@ -69,6 +69,7 @@ else
 fi
 
 # Download Brave Browser as AppImage
+echo "note: the AppImage mirror publishes no checksums — installing without verification."
 wget -O "$SCRIPT_TMPDIR/brave.AppImage" "$DOWNLOAD_URL"
 cp -p "$SCRIPT_TMPDIR/brave.AppImage" "$LOCAL_BIN/"
 chmod +x "$LOCAL_BIN/brave.AppImage"

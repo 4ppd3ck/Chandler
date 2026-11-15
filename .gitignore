@@ -8,3 +8,4 @@ gitadd.md
 .DS_Store
 assets/custom-scripts/config
 *_test.go
+key.bin

@@ -26,5 +26,6 @@ var Items = []Item{
 	{Label: "Install core only", Desc: "skips browsers & fzf setup", Group: "bulk", Action: "__core"},
 	{Label: "Install oc (OpenShift)", Desc: "OpenShift/kubectl client", Group: "k8s", Action: "oc"},
 	{Label: "Config: stacks & cloud", Desc: "choose k8s stack + cloud", Group: "setup", Action: "__config"},
-	{Label: "Update installed scripts", Desc: "re-copy custom/ to ~/.local/bin", Group: "setup", Action: "__update_scripts"},
+	{Label: "Update installed scripts", Desc: "re-copy custom/ to ~/.local/share/chandler", Group: "setup", Action: "__update_scripts"},
+	{Label: "Uninstall chandler", Desc: "remove command, scripts & config", Group: "danger", Action: "__uninstall"},
 }

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# fzf keybinding setup for interactive bash sessions.
+# fzf keybinding setup for interactive bash and zsh sessions.
 #
 # This script is designed to be BOTH:
 #   - sourced (`. ~/.local/share/chandler/scripts/misc/fzf_setup.sh`)  -> activates the
@@ -8,7 +8,7 @@
 #   - run directly (`fzf_setup`)                            -> activates and
 #     prints a short confirmation message.
 #
-# Binds (when sourced/run in an interactive bash shell with fzf installed):
+# Binds (when sourced/run in an interactive bash or zsh shell with fzf installed):
 #   Alt+S        fuzzy-search aliases + functions + history + PATH executables
 #                (TAB is intentionally left free for normal shell
 #                autocompletion of files, folders and commands)
@@ -105,6 +105,56 @@ if [[ -n "${BASH_VERSION:-}" ]]; then
   bind -x '"\ec": __fzf_cd_widget'       2>/dev/null || true
 fi
 
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+# ---- zsh: the same four keys, zsh-native plumbing ----
+# zsh has no `bind -x` and no READLINE_LINE/READLINE_POINT — the editable
+# line is BUFFER/CURSOR and key handling goes through zle widgets. Ctrl+R,
+# Ctrl+T and Alt+C come from fzf's own zsh integration (`fzf --zsh`,
+# fzf >= 0.48 — the installer always downloads a current fzf); Alt+S keeps
+# the combined aliases/functions/history/executables picker as a custom
+# widget, with zsh-native listing (alias -L, the functions table, the
+# $path array — $path is zsh's array twin of PATH).
+if [[ -n "${ZSH_VERSION:-}" ]]; then
+  __fzf_zsh_search_command() {
+    {
+      alias -L 2>/dev/null | sed 's/^alias \([^=]*\)=.*/\1/'
+      print -r -l -- ${(k)functions} 2>/dev/null
+      for d in $path; do [[ -d "$d" ]] && ls "$d" 2>/dev/null; done
+      [[ -f "${HISTFILE:-}" ]] && tail -n 500 "${HISTFILE}" 2>/dev/null
+    } | awk '!seen[$0]++' \
+      | fzf --height 40% --reverse --exact --no-sort \
+            --prompt="cmd> " \
+            --header "Alt+S mode | type to filter | Enter to insert" \
+      || true
+  }
+
+  __fzf_search_widget_zsh() {
+    local selected
+    selected=$(__fzf_zsh_search_command)
+    if [[ -n "$selected" ]]; then
+      BUFFER="${selected}${BUFFER}"
+      CURSOR=${#BUFFER}
+    fi
+    zle reset-prompt
+  }
+
+  if fzf --zsh >/dev/null 2>&1 </dev/null; then
+    source <(fzf --zsh)
+  fi
+  zle -N __fzf_search_widget_zsh
+  bindkey '\es' __fzf_search_widget_zsh 2>/dev/null || true
+fi
+
+# Sourced or executed? bash: BASH_SOURCE[0] differs from $0 when sourced.
+# zsh: $0 IS the sourced file's path, but ZSH_ARGZERO keeps the shell's own
+# argv[0], so the two differ exactly when the file was executed. (Inside a
+# function zsh's $0 is the defining file's path — this helper's — which is
+# what the comparison wants.)
+if [[ -n "${ZSH_VERSION:-}" ]]; then
+  __fzf_was_executed() { [[ "${ZSH_ARGZERO:-}" == "${0}" ]]; }
+else
+  __fzf_was_executed() { [[ "${BASH_SOURCE[0]:-${0}}" == "${0}" ]]; }
+fi
+
+if __fzf_was_executed; then
   echo "fzf keybindings active. Alt+S=commands, Ctrl+R=history, Ctrl+T=files, Alt+C=cd."
 fi
