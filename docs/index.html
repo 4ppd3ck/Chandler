@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chandler — one binary for your whole k8s/cloud ops toolkit</title>
+<meta name="description" content="A single self-contained TUI that installs and wires up kubectl, k9s, helm, terraform, AWS CLI, fzf and browsers on any machine.">
+<style>
+  :root {
+    --bg: #0d0b08; --bg2: #14100b; --panel: #1a150e; --border: rgba(255,255,255,.09);
+    --text: #e3ddd2; --muted: #96897a; --accent: #f0a636; --accent2: #7fb8ff;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font: 16px/1.6 -apple-system, "Segoe UI", Roboto, sans-serif; }
+  a { color: var(--accent2); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 1020px; margin: 0 auto; padding: 0 24px; }
+  header { border-bottom: 1px solid var(--border); background: var(--bg2); }
+  header .wrap { display: flex; align-items: center; justify-content: space-between; height: 60px; }
+  .logo { font-family: var(--mono); font-weight: 700; font-size: 18px; color: var(--accent); }
+  nav a { color: var(--muted); margin-left: 22px; font-size: 14.5px; }
+  nav a:hover { color: var(--text); }
+  .hero { padding: 72px 0 48px; text-align: center; }
+  .hero h1 { font-family: var(--mono); font-size: 40px; letter-spacing: -1px; }
+  .hero h1 span { color: var(--accent); }
+  .hero p.tagline { font-size: 19px; color: var(--muted); margin: 16px auto 0; max-width: 680px; }
+  .badges { margin-top: 22px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  .badge { font-family: var(--mono); font-size: 12.5px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px; background: var(--panel); }
+  .badge b { color: var(--text); font-weight: 600; }
+  section { padding: 44px 0; }
+  h2 { font-size: 22px; margin-bottom: 24px; }
+  h2 .k { font-family: var(--mono); color: var(--accent); margin-right: 10px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; }
+  .card h3 { font-size: 15.5px; margin-bottom: 6px; color: var(--text); }
+  .card p { font-size: 14px; color: var(--muted); }
+  .tools { font-family: var(--mono); font-size: 13px; color: var(--muted); background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px; margin-top: 14px; line-height: 2; }
+  .tools b { color: var(--accent); font-weight: 600; }
+  .shots img { width: 100%; border: 1px solid var(--border); border-radius: 10px; display: block; background: #000; margin-bottom: 14px; }
+  .install { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 20px; font-family: var(--mono); font-size: 14px; overflow-x: auto; white-space: pre; color: var(--text); }
+  .install .c { color: var(--muted); }
+  .install .p { color: var(--accent); }
+  .cta { display: inline-block; margin-top: 16px; background: var(--accent); color: #1a1102; font-weight: 600; padding: 10px 22px; border-radius: 8px; }
+  .cta:hover { text-decoration: none; filter: brightness(1.08); }
+  footer { border-top: 1px solid var(--border); margin-top: 40px; padding: 28px 0 40px; color: var(--muted); font-size: 13.5px; }
+  footer .wrap { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <div class="logo">▣ chandler</div>
+  <nav><a href="#features">Features</a><a href="#screens">Screens</a><a href="#install">Install</a><a href="https://github.com/4ppd3ck/Chandler">GitHub</a></nav>
+</div></header>
+
+<div class="wrap">
+  <div class="hero">
+    <h1>chandler<span>_</span></h1>
+    <p class="tagline">One self-contained binary that detects the platform and installs the everyday k8s/cloud ops toolkit — with a full TUI to drive it.</p>
+    <div class="badges">
+      <span class="badge">License <b>MIT</b></span>
+      <span class="badge">Written in <b>pure Go stdlib — zero third-party deps</b></span>
+      <span class="badge">Platforms <b>macOS · Linux · FreeBSD · Windows</b></span>
+    </div>
+  </div>
+
+  <section id="features">
+    <h2><span class="k">##</span>What it does</h2>
+    <div class="grid">
+      <div class="card"><h3>Interactive TUI installer</h3><p>Pick tools from a menu, multi-select, see what's already installed — markers tell you at a glance.</p></div>
+      <div class="card"><h3>Checksum-verified downloads</h3><p>Installers travel inside the binary and verify every download against upstream checksums.</p></div>
+      <div class="card"><h3>Doctor</h3><p><code>chandler doctor</code> health-checks the installed toolkit and flags what's broken or missing.</p></div>
+      <div class="card"><h3>Update &amp; update-check</h3><p>Refresh installed tools or just see what's stale, without touching the rest.</p></div>
+      <div class="card"><h3>Self-install / uninstall</h3><p>Chandler can put itself on the PATH — and cleanly remove itself again.</p></div>
+      <div class="card"><h3>Signed provenance</h3><p>A sealed authorship claim rides inside the binary; <code>chandler claim</code> verifies it.</p></div>
+    </div>
+    <div class="tools">Installs &amp; wires: <b>kubectl</b> · <b>k9s</b> · <b>helm</b> · <b>terraform</b> · <b>AWS CLI</b> · <b>fzf</b> · <b>browsers</b> — dotfiles and helper scripts included</div>
+  </section>
+
+  <section id="screens">
+    <h2><span class="k">##</span>Screens</h2>
+    <div class="shots">
+      <img src="screenshots/tui-menu.png" alt="Chandler TUI tool menu">
+      <img src="screenshots/tui-compact.png" alt="Chandler TUI compact view">
+    </div>
+  </section>
+
+  <section id="install">
+    <h2><span class="k">##</span>Install</h2>
+    <div class="install"><span class="c"># Grab the zip for your platform, then:</span>
+unzip chandler-<span class="p">&lt;os&gt;-&lt;arch&gt;</span>.zip
+./chandler            <span class="c"># opens the TUI menu</span>
+chandler doctor       <span class="c"># verify the toolkit</span></div>
+    <p style="margin-top:14px;color:var(--muted);font-size:14px">macOS ships as <code>Chandler.app</code> (unsigned — right-click → <em>Open</em> the first time). Linux, FreeBSD and Windows zips are in every release.</p>
+    <a class="cta" href="https://github.com/4ppd3ck/Chandler/releases">Download from Releases</a>
+  </section>
+</div>
+
+<footer><div class="wrap">
+  <div>MIT licensed · © 2026 Manohar Guri (4ppd3ck)</div>
+  <div>Part of the suite: <a href="https://4ppd3ck.github.io/clouds/">Clouds</a> · <a href="https://4ppd3ck.github.io/chandler/">Chandler</a> · <a href="https://4ppd3ck.github.io/appdeck/">AppDeck</a></div>
+</div></footer>
+</body>
+</html>
