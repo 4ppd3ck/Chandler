@@ -1,5 +1,45 @@
 # Changelog
 
+## 2026-11-24 — keep S3 object caches out of command completion
+
+The S3 helpers now store cached object lists under
+`${XDG_CACHE_HOME:-~/.cache}/chandler/s3-bucket-objects/` instead of
+`~/.local/bin`, so the cache directory does not appear as a command
+completion candidate. On first run, each helper migrates existing profile
+cache files from the old location and removes the old generated directories
+when empty.
+
+## 2026-11-24 — helper scripts run on macOS's stock bash 3.2
+
+The custom scripts were written for bash 4+; on macOS their shebang
+(`#!/bin/bash`) is 3.2, so the S3 helpers died at the profile hint with
+`${AWS_PROFILE,,}: bad substitution` and `k_cleanup`/`tui_select` broke
+later on `mapfile`/`declare -A`. (A Homebrew bash on the PATH masked part
+of this: `__tui_pick` invokes `bash tui_select.sh`, but the aliases execute
+scripts directly through the shebang.)
+
+- The four AWS helpers (`s3_local_copy`, `s3_local_objects`,
+  `local_s3_upload`, `s3_date_download`) lower-case the profile through
+  `tr` instead of `${var,,}`.
+- `tui_select.sh` reads candidates with a `read` loop (mapfile gone) and
+  keeps a lower-cased twin array for the case-insensitive filter; the
+  multi-mode check state is two parallel indexed arrays with linear
+  membership helpers instead of an associative array. Side fix: the
+  check-all/uncheck-all keys used `local` at top level, which every bash
+  rejects with an error — the loops now use plain globals.
+- `k_cleanup.sh` replaces its three `mapfile` calls with read loops and
+  guards the array expansions (`${arr[@]+…}`) so an empty result does not
+  trip `set -u` on bash 3.2, which treats an empty array as unbound.
+- The read loops accept input without a trailing newline, matching what
+  `mapfile` read.
+- The profile hint's closing `\e[0m` was literal text (`echo` does not
+  interpret `\e`); it is a proper `$'\e[0m'` reset now.
+- Verified with macOS's own `/bin/bash` 3.2: `bash -n` on every script,
+  stubbed-aws runs of both reported scripts (all three profile classes),
+  empty and populated stubbed-kubectl runs of `k_cleanup`, and a scripted
+  pty suite for `tui_select` (filter, check-all, toggle, uncheck-all,
+  cancel). The deployed scripts tree picks this up via `chandler update`.
+
 ## 2026-11-24 — TUI: honest status, Ctrl-C, a gate sized to the menu, alt screen, ? overlay, single-key confirms
 
 - **Ctrl-C quits the menu.** Raw mode delivers it as a key rather than

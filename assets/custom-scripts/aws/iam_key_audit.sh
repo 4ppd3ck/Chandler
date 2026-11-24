@@ -14,11 +14,12 @@ if ! command -v aws >/dev/null 2>&1; then
   echo "AWS CLI is not installed. Exiting..."; exit 1
 fi
 
-AWS_PROFILE="${AWS_PROFILE:-default}"
+# Honest display name: env credentials are not a profile named "default".
+AWS_PROF="${AWS_PROFILE:-env credentials}"
 THRESHOLD_DAYS="${1:-90}"
 WARN_EPOCH=$(( $(date +%s) - THRESHOLD_DAYS * 86400 ))
 
-echo "IAM access-key audit (profile '$AWS_PROFILE', flagging > ${THRESHOLD_DAYS}d old)"
+echo "IAM access-key audit (profile '$AWS_PROF', flagging > ${THRESHOLD_DAYS}d old)"
 echo ""
 
 printf "%-22s %-22s %-10s %-12s %-16s %-12s %s\n" \

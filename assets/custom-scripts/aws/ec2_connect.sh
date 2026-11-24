@@ -14,11 +14,12 @@ if ! command -v aws >/dev/null 2>&1; then
 fi
 TUI_SELECT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../misc/tui_select.sh"
 
-AWS_PROFILE="${AWS_PROFILE:-default}"
+# Honest display name: env credentials are not a profile named "default".
+AWS_PROF="${AWS_PROFILE:-env credentials}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
 
 # Get all running instances, flatten tags to "Name | State | PrivIP | PubIP"
-echo "Fetching instances for profile '$AWS_PROFILE' / region '$AWS_REGION'..."
+echo "Fetching instances for profile '$AWS_PROF' / region '$AWS_REGION'..."
 MAP=$(aws ec2 describe-instances --region "$AWS_REGION" \
   --filters "Name=instance-state-name,Values=running" \
   --query "Reservations[].Instances[].[InstanceId,State.Name,PrivateIpAddress,PublicIpAddress,Tags[?Key=='Name'].Value|[0]]" \

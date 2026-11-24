@@ -13,14 +13,15 @@ if ! command -v aws >/dev/null 2>&1; then
   echo "AWS CLI is not installed. Exiting..."; exit 1
 fi
 
-AWS_PROFILE="${AWS_PROFILE:-default}"
+# Honest display name: env credentials are not a profile named "default".
+AWS_PROF="${AWS_PROFILE:-env credentials}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
 
 TODAY=$(date -u +%Y-%m-%d)
 YESTERDAY=$(date -u -d "yesterday" +%Y-%m-%d)
 MTD_START=$(date -u -d "$(date +%Y-%m-01)" +%Y-%m-%d)
 
-echo "AWS Cost Snapshot (profile '$AWS_PROFILE') — as of $TODAY UTC"
+echo "AWS Cost Snapshot (profile '$AWS_PROF') — as of $TODAY UTC"
 echo "============================================================="
 
 # --- Today vs yesterday --------------------------------------------------------

@@ -14,10 +14,11 @@ if ! command -v aws >/dev/null 2>&1; then
   echo "AWS CLI is not installed. Exiting..."; exit 1
 fi
 
-AWS_PROFILE="${AWS_PROFILE:-default}"
+# Honest display name: env credentials are not a profile named "default".
+AWS_PROF="${AWS_PROFILE:-env credentials}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
 
-echo "ACM certificate expiry (profile '$AWS_PROFILE' / region '$AWS_REGION')"
+echo "ACM certificate expiry (profile '$AWS_PROF' / region '$AWS_REGION')"
 echo "------------------------------------------------------------"
 
 aws acm list-certificates --region "$AWS_REGION" \

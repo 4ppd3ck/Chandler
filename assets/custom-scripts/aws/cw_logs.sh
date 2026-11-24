@@ -14,9 +14,11 @@ if ! command -v aws >/dev/null 2>&1; then
 fi
 TUI_SELECT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../misc/tui_select.sh"
 
-AWS_PROFILE="${AWS_PROFILE:-default}"
+# Honest display name: env credentials are not a profile named "default".
+AWS_PROF="${AWS_PROFILE:-env credentials}"
+AWS_PROF_DIR="${AWS_PROFILE:-env}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
-CACHE_DIR="$HOME/.local/bin/cw-logs-cache/$AWS_PROFILE"
+CACHE_DIR="$HOME/.local/bin/cw-logs-cache/$AWS_PROF_DIR"
 mkdir -p "$CACHE_DIR"
 
 refresh_groups() {
@@ -45,7 +47,7 @@ refresh_groups() {
 
 CACHE="$CACHE_DIR/groups.txt"
 if [[ ! -s "$CACHE" ]]; then
-  echo "First run: caching log groups for profile '$AWS_PROFILE'..."
+  echo "First run: caching log groups for profile '$AWS_PROF'..."
   refresh_groups
 fi
 
