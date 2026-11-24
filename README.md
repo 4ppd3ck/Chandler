@@ -156,10 +156,11 @@ zsh is wired up end to end, not just the PATH block:
 - the same bootstrap exists for bash: a bash login shell with neither
   config gets `~/.bashrc` plus the `.bash_profile` chain, and an existing
   `.bash_profile` that never sources `.bashrc` gets the chain line
-  appended — a login bash reads `.bash_profile`, not `.bashrc`, so
-  without it the PATH block would miss login shells. An existing chain
-  (anything mentioning `.bashrc`) is left alone, and `.bash_profile` is
-  never created on unix, where creating it would shadow `~/.profile`;
+  appended at every launch, upgrades from an earlier version included —
+  a login bash reads `.bash_profile`, not `.bashrc`, so without it the
+  PATH block would miss login shells. An existing chain (anything
+  mentioning `.bashrc`) is left alone, and `.bash_profile` is never
+  created on unix, where creating it would shadow `~/.profile`;
 - fish gets its own wiring when the machine shows it at all — a
   `~/.config/fish` directory or a fish login shell: a `fish_add_path -g
   $HOME/.local/bin` block is appended to `~/.config/fish/config.fish`
@@ -184,7 +185,7 @@ zsh is wired up end to end, not just the PATH block:
 | --- | --- |
 | *(none)* | interactive menu (the default) |
 | `update` | re-run the "Update installed scripts" action non-interactively, then refresh the installed `chandler` command |
-| `install` | copy the binary that was run to `~/.local/bin/chandler` and record the root pin; also sets up the PATH when needed and ends with a pointer to open a new terminal |
+| `install` | copy the binary that was run to `~/.local/bin/chandler` and record the root pin; also sets up the PATH when needed, re-wires the Windows shells (PowerShell profiles, the user PATH for cmd.exe) and ends with a pointer to open a new terminal |
 | `tool <name>` | install one menu entry non-interactively — `chandler tool kubectl`, `chandler tool all` (the bulk install; `-y` skips its confirm), `chandler tool` alone lists the names. An argument after `--` reaches the installer script: the version-prompting installers accept a version (`chandler tool kubectl -- 1.31.0`), fzf-setup its choice, the browsers an arch — making those runs fully unattended. Same prerequisite pass, same installers, same logs as the menu |
 | `doctor` | read-only status report: deployment root and pin, `config.env`, PATH, the login shell and shell-config blocks (bash, zsh, fish), prerequisites, installed tools with versions, deployed scripts, installed command. Installs nothing, exits 0; `--json` renders the same facts as JSON |
 | `update-check` | compare this build against the configured release feed (explicit-only, never on startup). Exit codes: 0 current/dev/unconfigured, 1 feed error, 2 a newer release is available. The feed URL is stamped at publish time (`-X main.releasesAPI=…`) or given per-run via `CHANDLER_RELEASES_API` |
@@ -371,7 +372,8 @@ in its PE resources via the committed `rsrc_windows_*.syso` objects.
     through `powershell.exe -NoProfile` rather than `setx`, which
     truncates PATH at 1024 characters). New cmd windows pick it up;
     already-open shells keep their PATH until restarted, and
-    `uninstall` removes the entry again;
+    `uninstall` removes the entry again. Run `chandler install` once
+    after upgrading from an earlier version to add it;
   - the installed command is
     `%USERPROFILE%\.local\bin\chandler.exe` and the synced helpers land in
     `%USERPROFILE%\.local\share\chandler\scripts`.

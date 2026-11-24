@@ -139,6 +139,22 @@ func FileHasChandlerBlock(configFile string) bool {
 // Every write is guarded so running the program twice in a shell that has
 // not re-sourced its config cannot pile up duplicate lines.
 func EnsureLocalBinOnPath() error {
+	return ensureLocalBinOnPath(false)
+}
+
+// EnsureLocalBinOnPathForInstall is EnsureLocalBinOnPath as `chandler
+// install` runs it. The two differ in one case: a machine whose bash/zsh
+// side was set up by an earlier chandler — every config carries the
+// block and the folder is on the PATH — takes the "already in the PATH"
+// exit, which leaves out the windows wiring (a powershell run is too
+// dear for every launch). `install` is the explicit setup command, so
+// there the wiring runs regardless: an upgrade gets the user PATH for
+// cmd.exe without anyone having to know it is new.
+func EnsureLocalBinOnPathForInstall() error {
+	return ensureLocalBinOnPath(true)
+}
+
+func ensureLocalBinOnPath(forInstall bool) error {
 	localBin := home.LocalBin()
 	sep := string(os.PathListSeparator) // ":" on unix, ";" on windows
 	configs := shellConfigs()
@@ -156,9 +172,8 @@ func EnsureLocalBinOnPath() error {
 	// running shell still carries the old PATH, but its config no longer
 	// holds the block — a fresh terminal would lose the command. Skip only
 	// when every existing config already carries the block (or none exists
-	// to hold one) and the directory is on the current PATH. (A fish or
-	// PowerShell config added after a completed bash setup is caught by
-	// the writes above running first, not by this check.)
+	// to hold one) and the directory is on the current PATH. (A fish
+	// config is wired by the write above, before this check.)
 	blocked := len(configs) > 0
 	for _, c := range configs {
 		if !FileHasChandlerBlock(c) {
@@ -168,6 +183,13 @@ func EnsureLocalBinOnPath() error {
 	}
 	if blocked && strings.Contains(sep+os.Getenv("PATH")+sep, sep+localBin+sep) {
 		fmt.Printf("%s is already in the PATH.\n", localBin)
+		// The bash/zsh side is done — but a machine set up by an earlier
+		// chandler may predate the login-bash chain, which is two small
+		// reads to make sure of.
+		ensureBashProfileChainWarned()
+		if forInstall {
+			ensureWindowsWiring(localBin)
+		}
 		return nil
 	}
 
@@ -210,34 +232,15 @@ func EnsureLocalBinOnPath() error {
 	// profile that never sources .bashrc would keep the fresh block away
 	// from login shells. Chain it (all platforms; the windows fresh
 	// machine writes its own chain in createBashConfig, which this then
-	// recognizes and skips). Errors are warnings: the block is in place
-	// for interactive shells regardless.
-	if err := ensureBashProfileChain(); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not add the .bash_profile chain: %v\n", err)
-	}
+	// recognizes and skips).
+	ensureBashProfileChainWarned()
 
 	if noConfig && !fishWired {
 		fmt.Println("No compatible shell config file found.")
 		return ErrNoShellConfig
 	}
 
-	// Windows also hands the PATH line to the PowerShell profiles and the
-	// user-scope registry (cmd.exe); both are best-effort — a failure here
-	// never stops the menu.
-	if runtime.GOOS == "windows" {
-		if err := ensurePowerShellProfiles(localBin); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: could not update a PowerShell profile: %v\n", err)
-		}
-		added, err := ensureCmdUserPath(localBin)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: could not update the user PATH for cmd.exe: %v\n", err)
-			fmt.Println("Note: cmd.exe reads none of these files — add the folder to your PATH via System Properties → Environment Variables.")
-		} else if added {
-			fmt.Printf("Added %s to the user PATH (registry) — cmd.exe picks it up in newly opened windows.\n", localBin)
-		} else {
-			fmt.Println("The user PATH (registry) already carries the folder for cmd.exe.")
-		}
-	}
+	ensureWindowsWiring(localBin)
 
 	// bash re-sources the config file here; the Go port just prepends
 	// LOCAL_BIN to the current process PATH so child installers inherit
@@ -246,6 +249,39 @@ func EnsureLocalBinOnPath() error {
 	os.Setenv("PATH", localBin+sep+os.Getenv("PATH"))
 	fmt.Printf("%s has been added to the PATH.\n", localBin)
 	return nil
+}
+
+// ensureBashProfileChainWarned is ensureBashProfileChain with a failure
+// reported as the warning it is — the block is in place for interactive
+// shells regardless.
+func ensureBashProfileChainWarned() {
+	if err := ensureBashProfileChain(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not add the .bash_profile chain: %v\n", err)
+	}
+}
+
+// ensureWindowsWiring hands the PATH line to the PowerShell profiles and
+// adds the folder to the user-scope registry PATH cmd.exe reads. Both are
+// best-effort — a failure here never stops the menu — and both cost a
+// powershell run, which is why the PATH setup runs them only where it has
+// work to do or `chandler install` asks (ensureLocalBinOnPath). A no-op
+// on every other platform.
+func ensureWindowsWiring(localBin string) {
+	if runtime.GOOS != "windows" {
+		return
+	}
+	if err := ensurePowerShellProfiles(localBin); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not update a PowerShell profile: %v\n", err)
+	}
+	added, err := ensureCmdUserPath(localBin)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not update the user PATH for cmd.exe: %v\n", err)
+		fmt.Println("Note: cmd.exe reads none of these files — add the folder to your PATH via System Properties → Environment Variables.")
+	} else if added {
+		fmt.Printf("Added %s to the user PATH (registry) — cmd.exe picks it up in newly opened windows.\n", localBin)
+	} else {
+		fmt.Println("The user PATH (registry) already carries the folder for cmd.exe.")
+	}
 }
 
 // shellConfigs lists the existing shell configs the PATH block belongs
