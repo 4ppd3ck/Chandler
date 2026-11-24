@@ -73,7 +73,8 @@
   `.bashrc` gets the chain line appended in its own marker block, so the
   PATH block reaches login shells. Anything already mentioning `.bashrc`
   is left alone, and `.bash_profile` is never created on unix, where
-  creating it would shadow `~/.profile`.
+  creating it would shadow `~/.profile`. The check runs at every launch,
+  so a machine an earlier chandler set up gets the chain too.
 - **cmd.exe automation** (pathsetup + uninstall): the user-scope
   registry PATH (`HKCU\Environment\Path`) gains — and uninstall removes —
   the LOCAL_BIN entry through `powershell.exe -NoProfile` and
@@ -82,6 +83,10 @@
   1024-character truncation; the folder travels in an environment
   variable, so nothing is ever interpolated into the script. New cmd
   windows see the folder; already-open shells keep their inherited PATH.
+  The wiring costs a PowerShell run, so a plain launch makes it only
+  when the PATH setup has work to do; `chandler install` makes it
+  regardless — on a machine upgraded from an earlier chandler, whose PATH
+  setup is already complete, that is the command that adds the entry.
 - **OneDrive-aware Documents** (home.DocumentsDir): the PowerShell
   profiles (setup and uninstall alike) resolve Documents through
   `[Environment]::GetFolderPath('MyDocuments')`, so a OneDrive-redirected

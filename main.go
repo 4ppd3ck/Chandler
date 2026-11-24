@@ -465,9 +465,12 @@ func runInstallCmd() int {
 	}
 	// The subcommand also sets the PATH up the way the interactive flow
 	// does — `chandler install` on a fresh machine should yield a runnable
-	// command in a new shell, not just a file in an untracked directory.
+	// command in a new shell, not just a file in an untracked directory —
+	// and, unlike a plain launch, wires every shell even where the bash
+	// side is already done: it is the one command that re-runs the
+	// windows wiring (see pathsetup.EnsureLocalBinOnPathForInstall).
 	// Advisory only: an environment this fails on still gets the copy.
-	if err := pathsetup.EnsureLocalBinOnPath(); err != nil {
+	if err := pathsetup.EnsureLocalBinOnPathForInstall(); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: could not add LOCAL_BIN to the PATH: %v\n", err)
 	}
 	_, statErr := os.Stat(target)
