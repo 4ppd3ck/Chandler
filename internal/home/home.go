@@ -9,7 +9,10 @@ package home
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 )
 
 func Dir() string {
@@ -35,4 +38,28 @@ func ShareRoot() string {
 
 func ScriptsDir() string {
 	return filepath.Join(ShareRoot(), "scripts")
+}
+
+// DocumentsDir resolves the user's Documents directory. On windows the
+// shell/profile code must follow the same redirection Explorer does — a
+// OneDrive-redirected Documents is where PowerShell actually looks for
+// its profiles — so the real path is asked of the OS through
+// powershell.exe's [Environment]::GetFolderPath('MyDocuments') (always
+// present on windows), with ~/Documents as the fallback whenever the
+// probe fails. On every other platform this is ~/Documents, unchanged.
+func DocumentsDir() string {
+	docs := filepath.Join(Dir(), "Documents")
+	if runtime.GOOS != "windows" {
+		return docs
+	}
+	out, err := exec.Command("powershell", "-NoProfile", "-NonInteractive",
+		"-Command", "[Environment]::GetFolderPath('MyDocuments')").Output()
+	if err != nil {
+		return docs
+	}
+	resolved := strings.TrimSpace(string(out))
+	if resolved == "" || !filepath.IsAbs(resolved) {
+		return docs
+	}
+	return resolved
 }

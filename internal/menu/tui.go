@@ -48,7 +48,11 @@ func UseTUI() bool {
 	if err != nil {
 		return false
 	}
-	return cols >= 60 && lines >= 16
+	// The gate matches the block Draw produces (MinLines), not a guess:
+	// on a terminal too short for it the block's top lines scroll off,
+	// and the highlight can move to a row nobody sees — the numeric
+	// fallback menu serves those instead.
+	return cols >= 60 && lines >= MinLines(false)
 }
 
 // checkable reports whether a menu entry participates in the space-check
@@ -62,7 +66,10 @@ func checkable(action string) bool {
 	return true
 }
 
-func TuiLoop(osName, pkgMgr, root, scriptDir string, rd *term.Reader, initialSel int) {
+// TuiLoop runs the interactive menu. prereqMissing carries the
+// prerequisite names the startup check could not satisfy — the status
+// line shows them as a ⚠ list instead of claiming readiness.
+func TuiLoop(osName, pkgMgr, root, scriptDir string, prereqMissing []string, rd *term.Reader, initialSel int) {
 	cols, lines, showLogo := Geometry(os.Stdout)
 
 	var state atomic.Pointer[term.State]
@@ -76,9 +83,16 @@ func TuiLoop(osName, pkgMgr, root, scriptDir string, rd *term.Reader, initialSel
 		return
 	}
 	state.Store(saved)
+	// The menu lives on the alternate screen buffer: entering here hides
+	// it from the user's scrollback, leaving on every exit path (quit,
+	// Ctrl-D, signal, successful uninstall) restores the pre-menu screen
+	// byte-for-byte. Actions temporarily leave the buffer — their output
+	// belongs in the scrollback, like a plain command run.
+	term.EnterAltScreen(os.Stdout)
 	defer func() {
 		term.Restore(state.Load())
 		term.ShowCursor(os.Stdout)
+		term.LeaveAltScreen(os.Stdout)
 		SaveLastSelection(int(selAtomic.Load()))
 	}()
 
@@ -89,11 +103,11 @@ func TuiLoop(osName, pkgMgr, root, scriptDir string, rd *term.Reader, initialSel
 		<-sig
 		term.Restore(state.Load())
 		term.ShowCursor(os.Stdout)
+		term.LeaveAltScreen(os.Stdout)
 		os.Exit(1)
 	}()
 
 	term.HideCursor(os.Stdout)
-	term.ClearScreen(os.Stdout)
 
 	colors := NewColors(ColorsEnabled(os.Stdout))
 	n := len(Items)
@@ -104,6 +118,13 @@ func TuiLoop(osName, pkgMgr, root, scriptDir string, rd *term.Reader, initialSel
 	// after every action, so the rows' · installed markers and the status
 	// line's count track reality through the session.
 	installed := InstalledTools()
+
+	// The TUI's confirms read one raw keypress instead of the typed
+	// [y/N] line — same printed prompt, TUI-grade answer. nil leaves the
+	// runner on the typed read (fallback menu, `chandler tool`). The one
+	// program-wide keystroke Reader serves the confirm too.
+	SingleKeyConfirm = func(prompt string) bool { return singleKeyConfirm(rd, prompt) }
+	defer func() { SingleKeyConfirm = nil }()
 
 	// The draw state (cols, lines, showLogo, blockHeight) and the maps
 	// the rows render (checked, installed) are shared with the resize
@@ -116,7 +137,23 @@ func TuiLoop(osName, pkgMgr, root, scriptDir string, rd *term.Reader, initialSel
 	// race-free against the key loop's sel updates.
 	var drawMu sync.Mutex
 	var actionRunning atomic.Bool
-	blockHeight := Draw(os.Stdout, sel, cols, showLogo, osName, pkgMgr, colors, checked, installed)
+
+	// syncGeometry re-probes the terminal (under drawMu) and reports
+	// whether its size changed since the last draw, updating the layout
+	// to match: cols keeps Geometry's 78-column cap, and the logo shows
+	// exactly when the block with it still fits. A caller that gets true
+	// clears the screen instead of erasing in place — the block on screen
+	// no longer has the height recorded in blockHeight.
+	syncGeometry := func() bool {
+		if c, l, err := term.Size(os.Stdout.Fd()); err == nil && (min(c, maxCols) != cols || l != lines) {
+			cols, lines = min(c, maxCols), l
+			showLogo = lines >= MinLines(true)
+			return true
+		}
+		return false
+	}
+
+	blockHeight := Draw(os.Stdout, sel, cols, showLogo, osName, pkgMgr, colors, checked, installed, prereqMissing)
 
 	stopResize := startResizeWatcher(func() {
 		drawMu.Lock()
@@ -128,26 +165,44 @@ func TuiLoop(osName, pkgMgr, root, scriptDir string, rd *term.Reader, initialSel
 			drawMu.Unlock()
 			return
 		}
-		if c, l, err := term.Size(os.Stdout.Fd()); err == nil && (c != cols || l != lines) {
-			cols, lines = c, l
-			showLogo = lines >= logoMinLines
+		if syncGeometry() {
 			term.ClearScreen(os.Stdout)
-			blockHeight = Draw(os.Stdout, int(selAtomic.Load()), cols, showLogo, osName, pkgMgr, colors, checked, installed)
+			blockHeight = Draw(os.Stdout, int(selAtomic.Load()), cols, showLogo, osName, pkgMgr, colors, checked, installed, prereqMissing)
 		}
 		drawMu.Unlock()
 	})
 	defer stopResize()
 
+	// Every redraw re-probes the size. The watcher stands down while an
+	// action owns the screen, so a resize during an installer would
+	// otherwise go unhandled until the next keypress — with the menu
+	// drawn for the old geometry the whole time.
 	redraw := func(sel int) {
 		selAtomic.Store(int32(sel))
 		drawMu.Lock()
-		term.EraseBlock(blockHeight)
-		blockHeight = Draw(os.Stdout, sel, cols, showLogo, osName, pkgMgr, colors, checked, installed)
+		if syncGeometry() {
+			term.ClearScreen(os.Stdout)
+		} else {
+			term.EraseBlock(blockHeight)
+		}
+		blockHeight = Draw(os.Stdout, sel, cols, showLogo, osName, pkgMgr, colors, checked, installed, prereqMissing)
 		drawMu.Unlock()
 	}
 
 	waitKey := func() {
 		_, _ = rd.ReadKey()
+	}
+
+	// returnToMenu ends a primary-screen interlude (an action, the config
+	// and update handlers): one keypress is held on that screen — where
+	// the interlude's output and this prompt are both visible, since the
+	// alternate screen would hide the output — and only then is the
+	// menu's own screen brought back (cleared) for the redraw that
+	// follows. The caller has put the terminal back in raw mode.
+	returnToMenu := func() {
+		fmt.Printf("\r\n%s─ press any key to return to the menu ─%s", colors.Dim, colors.Reset)
+		waitKey()
+		term.EnterAltScreen(os.Stdout)
 	}
 
 	// runSelection runs the selected action and reports whether the session
@@ -156,12 +211,17 @@ func TuiLoop(osName, pkgMgr, root, scriptDir string, rd *term.Reader, initialSel
 	// screen and the terminal is left cooked (the loop's deferred Restore
 	// puts the original state back as the session exits). A FAILED uninstall
 	// keeps the menu, like any other failed action.
+	//
+	// The alternate screen is left for the action's duration: the ▶ header
+	// and the installer output land on the primary screen, below where the
+	// user started chandler — scrollback they keep after the menu is gone.
 	runSelection := func(sel int) bool {
 		actionRunning.Store(true)
 		defer actionRunning.Store(false)
 		drawMu.Lock()
 		term.EraseBlock(blockHeight)
 		drawMu.Unlock()
+		term.LeaveAltScreen(os.Stdout)
 		fmt.Printf("\r\x1b[2K%s▶%s %s%s%s\r\n\r\n",
 			colors.BMagenta, colors.Reset, colors.Bold, Items[sel].Label, colors.Reset)
 		term.ShowCursor(os.Stdout)
@@ -183,10 +243,7 @@ func TuiLoop(osName, pkgMgr, root, scriptDir string, rd *term.Reader, initialSel
 			state.Store(ns)
 		}
 		term.HideCursor(os.Stdout)
-		fmt.Printf("\r\n%s─ press any key to return to the menu ─%s", colors.Dim, colors.Reset)
-		waitKey()
-		fmt.Printf("\r\n")
-		term.ClearScreen(os.Stdout)
+		returnToMenu()
 		return false
 	}
 
@@ -202,6 +259,7 @@ func TuiLoop(osName, pkgMgr, root, scriptDir string, rd *term.Reader, initialSel
 		for _, i := range sels {
 			tools = append(tools, Items[i].Action)
 		}
+		term.LeaveAltScreen(os.Stdout)
 		fmt.Printf("\r\x1b[2K%s▶%s %s%s%s\r\n\r\n",
 			colors.BMagenta, colors.Reset, colors.Bold,
 			fmt.Sprintf("Install %d checked tools", len(sels)), colors.Reset)
@@ -216,10 +274,7 @@ func TuiLoop(osName, pkgMgr, root, scriptDir string, rd *term.Reader, initialSel
 			state.Store(ns)
 		}
 		term.HideCursor(os.Stdout)
-		fmt.Printf("\r\n%s─ press any key to return to the menu ─%s", colors.Dim, colors.Reset)
-		waitKey()
-		fmt.Printf("\r\n")
-		term.ClearScreen(os.Stdout)
+		returnToMenu()
 	}
 
 loop:
@@ -228,15 +283,16 @@ loop:
 		if err != nil {
 			break loop
 		}
-		if c, l, err := term.Size(os.Stdout.Fd()); err == nil && (c != cols || l != lines) {
-			// Resize noticed on a keypress (also the fallback when the
-			// watcher is not running): redraw under the same lock it uses.
-			drawMu.Lock()
-			cols, lines = c, l
-			showLogo = lines >= logoMinLines
+		// Resize noticed on a keypress (also the fallback when the
+		// watcher is not running): redraw under the same lock it uses.
+		drawMu.Lock()
+		resized := syncGeometry()
+		if resized {
 			term.ClearScreen(os.Stdout)
-			blockHeight = Draw(os.Stdout, sel, cols, showLogo, osName, pkgMgr, colors, checked, installed)
-			drawMu.Unlock()
+			blockHeight = Draw(os.Stdout, sel, cols, showLogo, osName, pkgMgr, colors, checked, installed, prereqMissing)
+		}
+		drawMu.Unlock()
+		if resized {
 			continue
 		}
 		switch key.Type {
@@ -252,6 +308,11 @@ loop:
 		case term.KeyEnd:
 			sel = n - 1
 			redraw(sel)
+		case term.KeyCtrlC:
+			// Raw mode keeps ISIG off, so Ctrl-C arrives here as a key,
+			// not a signal — and the signal handler only covers the
+			// cooked moments. Quit like q: the reflex must work.
+			break loop
 		case term.KeySpace:
 			if checkable(Items[sel].Action) {
 				// Under drawMu: the resize watcher reads this same map
@@ -302,31 +363,55 @@ loop:
 			case 'G':
 				sel = n - 1
 				redraw(sel)
-			case '1', '2', '3', '4', '5', '6', '7', '8', '9':
-				if d := int(key.Rune-'0') - 1; d == sel {
+			case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+				d := digitIndex(key.Rune)
+				if d >= n {
+					break
+				}
+				// "1" can also be the first half of a two-digit entry: on
+				// a menu long enough to have one, wait a moment for the
+				// second digit and compose when the pair names an entry.
+				// Anything else — a repeated digit, a pair with no entry,
+				// another key — comes back on the next read untouched, so
+				// the single-digit behavior (press again to run) holds.
+				if canStartCompose(key.Rune, n) {
+					pair := func(second rune) bool {
+						_, ok := composeEntry(key.Rune, second, n)
+						return ok
+					}
+					if second, ok, _ := rd.ReadTailDigit(pair); ok {
+						d, _ = composeEntry(key.Rune, second, n)
+					}
+				}
+				if d == sel {
 					if runSelection(sel) {
 						return
 					}
-					redraw(sel)
-				} else {
-					sel = d
-					redraw(sel)
 				}
-			case '0':
-				if sel == 9 {
-					if runSelection(sel) {
-						return
-					}
-					redraw(sel)
-				} else {
-					sel = 9
-					redraw(sel)
-				}
+				sel = d
+				redraw(sel)
+			case '?':
+				// The key overlay: the one-line hint bar cannot fit the
+				// vim keys, the quit keys or the two-digit compose. The
+				// watcher stands down (actionRunning) so a resize cannot
+				// draw the menu over the help.
+				actionRunning.Store(true)
+				drawMu.Lock()
+				term.EraseBlock(blockHeight)
+				drawMu.Unlock()
+				term.ClearScreen(os.Stdout)
+				drawHelp(os.Stdout, colors)
+				waitKey()
+				term.ClearScreen(os.Stdout)
+				actionRunning.Store(false)
+				redraw(sel)
 			case 'c', 'C':
 				actionRunning.Store(true)
 				drawMu.Lock()
 				term.EraseBlock(blockHeight)
 				drawMu.Unlock()
+				term.LeaveAltScreen(os.Stdout)
+				term.ShowCursor(os.Stdout)
 				term.Restore(state.Load())
 				if _, err := ask.AskStackCloud(root, rd); err != nil {
 					fmt.Fprintln(os.Stderr, err)
@@ -334,9 +419,8 @@ loop:
 				if ns, err := term.MakeRaw(os.Stdin.Fd()); err == nil {
 					state.Store(ns)
 				}
-				fmt.Printf("\r\n%spress any key to return%s", colors.Dim, colors.Reset)
-				waitKey()
-				term.ClearScreen(os.Stdout)
+				term.HideCursor(os.Stdout)
+				returnToMenu()
 				actionRunning.Store(false)
 				redraw(sel)
 			case 'u', 'U':
@@ -344,6 +428,8 @@ loop:
 				drawMu.Lock()
 				term.EraseBlock(blockHeight)
 				drawMu.Unlock()
+				term.LeaveAltScreen(os.Stdout)
+				term.ShowCursor(os.Stdout)
 				term.Restore(state.Load())
 				_ = UpdateScripts()
 				drawMu.Lock()
@@ -352,9 +438,8 @@ loop:
 				if ns, err := term.MakeRaw(os.Stdin.Fd()); err == nil {
 					state.Store(ns)
 				}
-				fmt.Printf("\r\n%spress any key to return%s", colors.Dim, colors.Reset)
-				waitKey()
-				term.ClearScreen(os.Stdout)
+				term.HideCursor(os.Stdout)
+				returnToMenu()
 				actionRunning.Store(false)
 				redraw(sel)
 			case 'q', 'Q':
@@ -366,6 +451,66 @@ loop:
 	drawMu.Lock()
 	term.EraseBlock(blockHeight)
 	drawMu.Unlock()
+}
+
+// digitIndex is the entry a single digit selects: '1'-'9' are entries
+// 1-9, '0' is entry 10.
+func digitIndex(d rune) int {
+	if d == '0' {
+		return 9
+	}
+	return int(d-'0') - 1
+}
+
+// composeEntry reports whether the keystroke pair first, second names an
+// entry of the n-entry menu, and which one: only "1" followed by another
+// digit can reach past entry 10 ("12" is entry 12). A repeated digit is
+// never a pair — the same key twice is press-again-to-run at any speed —
+// and a pair that names no entry is no pair, so both answer 0, false.
+func composeEntry(first, second rune, n int) (int, bool) {
+	if first != '1' || second < '0' || second > '9' || second == first {
+		return 0, false
+	}
+	idx := 9 + int(second-'0') // "12" → entry 12 → index 11
+	if idx >= n {
+		return 0, false
+	}
+	return idx, true
+}
+
+// canStartCompose reports whether a keystroke after first could turn it
+// into a two-digit selection — the menu must have an entry past 10 and
+// first must be the digit such entries start with.
+func canStartCompose(first rune, n int) bool {
+	return first == '1' && n > 10
+}
+
+// singleKeyConfirm is the TUI's confirm: the prompt the typed fallback
+// prints, answered with ONE raw keypress through the loop's Reader — y/Y
+// runs, anything else (Enter included, so a stray key can never confirm)
+// aborts. The action path leaves the terminal cooked before the runner
+// asks, so raw mode is taken for this one read and given straight back;
+// where raw mode is unavailable the typed line answers, as everywhere
+// else. The pressed key is echoed, so the transcript shows the answer.
+func singleKeyConfirm(rd *term.Reader, prompt string) bool {
+	fmt.Print(prompt)
+	saved, err := term.MakeRaw(os.Stdin.Fd())
+	if err != nil {
+		return typedAnswer()
+	}
+	key, keyErr := rd.ReadKey()
+	term.Restore(saved)
+	ok := keyErr == nil && key.Type == term.KeyRune && (key.Rune == 'y' || key.Rune == 'Y')
+	switch {
+	case ok, keyErr == nil && key.Type == term.KeyRune:
+		fmt.Printf("%c\n", key.Rune)
+	default:
+		fmt.Println()
+	}
+	if !ok {
+		fmt.Println("Aborted.")
+	}
+	return ok
 }
 
 func FallbackMenu(osName, pkgMgr, root, scriptDir string) {

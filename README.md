@@ -36,22 +36,36 @@ release.bat                 # Windows
 
 On startup the tool detects the OS, resolves the deployment root, loads
 `config.env`, checks the installer prerequisites and prints the notes above
-the menu. After that it picks a UI with the same gate the bash script used:
+the menu. After that it picks a UI with a gate sized to the menu itself:
 the **full-screen TUI** runs only when stdin and stdout are both terminals
-and the window is at least 60×16; anything else falls back to the **numeric
-menu**. The TUI also degrades to the fallback if raw mode cannot be entered.
+and the window holds the whole rendered block (60 columns, and one row
+more than the menu's height — 24 rows compact, 30 with the banner);
+anything else falls back to the **numeric menu**. The TUI also degrades to
+the fallback if raw mode cannot be entered.
 
-The menu also shows what the machine already has: installer-backed entries
+The menu draws on the **alternate screen buffer**: it appears over the
+user's scrollback and quitting restores the pre-menu screen byte-for-byte
+(on terminals without 1049 support it draws over the screen as before).
+Actions temporarily leave that buffer — the ▶ header and the installer
+output land on the primary screen, in the scrollback the user keeps — and
+a `press any key to return` pause sits on that output before the menu
+comes back.
+
+The menu also shows what the machine actually has: installer-backed entries
 carry a dim `· installed` marker, and the status line counts them
-(`✓ prerequisites ready · 6/10 tools installed`). The probes are cheap —
-`exec.LookPath` for the PATH tools, the AppImage files in `~/.local/bin`,
-and the deployed scripts tree for the Bash tools — and re-run after every
-action, so a row loses its marker the moment its tool lands. The fallback
-numeric menu prints the same facts as `(installed)` tags; `chandler doctor`
-reports the same list with versions.
+(`✓ prerequisites ready · 6/10 tools installed`). The status line is
+honest about the prerequisites too — tools the startup check could not
+provide render as `⚠ prerequisites missing: wget` in yellow, never a
+standing ✓. With space-checked entries the footer says what ⏎ will do
+(`⏎ runs 2 checked`). The probes are cheap — `exec.LookPath` for the PATH
+tools, the AppImage files in `~/.local/bin`, and the deployed scripts tree
+for the Bash tools — and re-run after every action, so a row loses its
+marker the moment its tool lands. The fallback numeric menu prints the
+same facts as `(installed)` tags; `chandler doctor` reports the same list
+with versions.
 
-On terminals shorter than 27 rows the ship banner collapses to a one-line
-header:
+On terminals too short for the banner block (30 rows) the ship banner
+collapses to a one-line header:
 
 ![The compact header on a short terminal](docs/screenshots/tui-compact.png)
 
@@ -64,19 +78,26 @@ header:
 | `Enter` / `⏎` | run the selected entry — or, when entries are checked, all of them in order |
 | `Space` | check the highlighted installer entry for a hand-picked multi-tool run (✓ in the menu; the bulk/config/update/uninstall entries are not checkable) |
 | `1`–`9`, `0` | jump to entry N (10 for `0`); run it if already selected |
+| `1` then `2`–`5` | jump to entry 12–15 (`1` briefly waits for a second digit; a repeated `1` is still press-again-to-run, and any other key arrives untouched) |
+| `?` | the key overlay — every binding above, in place |
 | `c` | re-run the stack/cloud config questions |
 | `u` | sync the embedded custom scripts to `~/.local/share/chandler/scripts` |
-| `q` / `Q` / `Ctrl-D` | quit |
-| `Ctrl-C` | restore the terminal and exit |
+| `q` / `Q` / `Ctrl-D` / `Ctrl-C` | quit (Ctrl-C works as the reflex it is — raw mode delivers it as a key, and the menu treats it as quit) |
+
+The bulk and uninstall confirms keep their printed `[y/N]` prompt in both
+UIs, but under the TUI the answer is one raw keypress — `y` runs,
+everything else (Enter included) aborts, with the pressed key echoed.
+`chandler tool` and the fallback menu keep the typed line.
 
 After every action the menu redraws (the action's status is ignored, exactly
-like the bash `run_menu_action "$sel" || true`). Three QoL additions over
-the bash original: the highlighted entry is remembered across runs; a
-resize redraws the menu immediately (SIGWINCH on the unixes, a console
-input-buffer watcher on windows — and the next keypress as the fallback
-everywhere); and Space checks entries for a hand-picked multi-tool run
-that flows through the same confirm, per-tool logs and ✓/✗ summary as the
-bulk actions.
+like the bash `run_menu_action "$sel" || true`). QoL over the bash
+original: the highlighted entry is remembered across runs; a resize
+redraws the menu immediately (SIGWINCH on the unixes, a console
+input-buffer watcher on windows — and every redraw re-probes the size, so
+a resize during a long action is caught by the next redraw too); Space
+checks entries for a hand-picked multi-tool run that flows through the
+same confirm, per-tool logs and ✓/✗ summary as the bulk actions; and a
+bulk run announces its queue position (`>>> Installing helm (6/9)...`).
 
 ### Fallback numeric menu
 
@@ -125,13 +146,25 @@ checksum and warns otherwise; the AWS CLI, the SSM plugin, the browsers'
 AppImages and kubectx/kubens publish no machine-readable checksums, so
 those installers say so and continue.
 
-### zsh
+### zsh and fish
 
 zsh is wired up end to end, not just the PATH block:
 
 - the PATH block goes into `~/.zshrc` exactly as into `~/.bashrc`; when a
   zsh login shell (`$SHELL`) has neither file, `~/.zshrc` is created
   instead of failing with "no compatible shell config file found";
+- the same bootstrap exists for bash: a bash login shell with neither
+  config gets `~/.bashrc` plus the `.bash_profile` chain, and an existing
+  `.bash_profile` that never sources `.bashrc` gets the chain line
+  appended — a login bash reads `.bash_profile`, not `.bashrc`, so
+  without it the PATH block would miss login shells. An existing chain
+  (anything mentioning `.bashrc`) is left alone, and `.bash_profile` is
+  never created on unix, where creating it would shadow `~/.profile`;
+- fish gets its own wiring when the machine shows it at all — a
+  `~/.config/fish` directory or a fish login shell: a `fish_add_path -g
+  $HOME/.local/bin` block is appended to `~/.config/fish/config.fish`
+  (created when missing; needs fish ≥ 3.2), stripped again by
+  `chandler uninstall` like every other block;
 - **Install Bash tools** (option 8) appends a `# >>> chandler shell tools
   >>>` block to `~/.zshrc` that sources the same four dotfiles, so the
   aliases and the `k` / `aw` / `tf` dispatchers work in zsh too. The
@@ -142,8 +175,8 @@ zsh is wired up end to end, not just the PATH block:
   `.bashrc` and `.zshrc`. The sourced helpers are shell-aware: under zsh,
   Ctrl+R / Ctrl+T / Alt+C come from fzf's own zsh integration
   (`fzf --zsh`) and Alt+S is a zle widget over the same combined picker;
-- `chandler uninstall` strips every chandler block kind from `.zshrc` as
-  it does from `.bashrc`.
+- `chandler uninstall` strips every chandler block kind from `.zshrc`,
+  `config.fish` and `.bash_profile` as it does from `.bashrc`.
 
 ## Subcommands
 
@@ -151,9 +184,9 @@ zsh is wired up end to end, not just the PATH block:
 | --- | --- |
 | *(none)* | interactive menu (the default) |
 | `update` | re-run the "Update installed scripts" action non-interactively, then refresh the installed `chandler` command |
-| `install` | copy the binary that was run to `~/.local/bin/chandler` and record the root pin |
+| `install` | copy the binary that was run to `~/.local/bin/chandler` and record the root pin; also sets up the PATH when needed and ends with a pointer to open a new terminal |
 | `tool <name>` | install one menu entry non-interactively — `chandler tool kubectl`, `chandler tool all` (the bulk install; `-y` skips its confirm), `chandler tool` alone lists the names. An argument after `--` reaches the installer script: the version-prompting installers accept a version (`chandler tool kubectl -- 1.31.0`), fzf-setup its choice, the browsers an arch — making those runs fully unattended. Same prerequisite pass, same installers, same logs as the menu |
-| `doctor` | read-only status report: deployment root and pin, `config.env`, PATH and shell-config blocks, prerequisites, installed tools with versions, deployed scripts, installed command. Installs nothing, exits 0; `--json` renders the same facts as JSON |
+| `doctor` | read-only status report: deployment root and pin, `config.env`, PATH, the login shell and shell-config blocks (bash, zsh, fish), prerequisites, installed tools with versions, deployed scripts, installed command. Installs nothing, exits 0; `--json` renders the same facts as JSON |
 | `update-check` | compare this build against the configured release feed (explicit-only, never on startup). Exit codes: 0 current/dev/unconfigured, 1 feed error, 2 a newer release is available. The feed URL is stamped at publish time (`-X main.releasesAPI=…`) or given per-run via `CHANDLER_RELEASES_API` |
 | `uninstall` | remove the installed command, the deployed scripts tree (`~/.local/share/chandler`), the root pin, the desktop entry and icons, and every config line chandler wrote; the Bash-tools dotfiles and `~/.aws/config` are restored from their `_bkp_` backups when one exists (credentials and shared tools like jq are never touched). Also offered as menu entry 15, which ends the menu session after a successful uninstall |
 | `version` | print `chandler <version> (<os>/<arch>, <go>)` — `dev` for a plain `go build` |
@@ -330,7 +363,15 @@ in its PE resources via the committed `rsrc_windows_*.syso` objects.
     Linux AppImages and self-skip with a pointer to their native installers;
   - the PATH block is appended to `~/.bashrc` and to both PowerShell
     profiles (marker-blocked and content-guarded, so re-runs never
-    duplicate lines and `uninstall` can strip them);
+    duplicate lines and `uninstall` can strip them). The profiles are
+    resolved through the real Documents folder, so a OneDrive-redirected
+    Documents is followed;
+  - cmd.exe reads none of those files, so the folder is also added to the
+    **user-scope PATH in the registry** (`HKCU\Environment\Path`, written
+    through `powershell.exe -NoProfile` rather than `setx`, which
+    truncates PATH at 1024 characters). New cmd windows pick it up;
+    already-open shells keep their PATH until restarted, and
+    `uninstall` removes the entry again;
   - the installed command is
     `%USERPROFILE%\.local\bin\chandler.exe` and the synced helpers land in
     `%USERPROFILE%\.local\share\chandler\scripts`.

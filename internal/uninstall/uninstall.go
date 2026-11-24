@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"chandler/internal/home"
+	"chandler/internal/pathsetup"
 	"chandler/internal/selfinstall"
 )
 
@@ -175,20 +176,29 @@ func Run() int {
 	// isChandlerBlockBegin/End recognizes and every bare legacy PATH line,
 	// best-effort with warnings — a config that cannot be rewritten still
 	// leaves the rest of the uninstall done. This runs after the restores
-	// above so a backup carrying an old block is cleaned too.
+	// above so a backup carrying an old block is cleaned too. config.fish
+	// joins the list: fish's PATH block is a marker block like the rest.
 	for _, name := range []string{".bashrc", ".zshrc", ".bash_profile"} {
 		configFile := filepath.Join(home.Dir(), name)
 		if stripped := StripChandlerLines(configFile, localBin); stripped {
 			fmt.Printf("cleaned %s\n", configFile)
 		}
 	}
+	if stripped := StripChandlerLines(pathsetup.FishConfigPath(), localBin); stripped {
+		fmt.Printf("cleaned %s\n", pathsetup.FishConfigPath())
+	}
 	if runtime.GOOS == "windows" {
-		docs := filepath.Join(home.Dir(), "Documents")
+		docs := home.DocumentsDir()
 		for _, dir := range []string{"PowerShell", "WindowsPowerShell"} {
 			profile := filepath.Join(docs, dir, "Microsoft.PowerShell_profile.ps1")
 			if stripped := StripChandlerLines(profile, localBin); stripped {
 				fmt.Printf("cleaned %s\n", profile)
 			}
+		}
+		// The user-scope registry PATH entry cmd.exe reads — the write the
+		// PATH setup made through PowerShell — is reversed the same way.
+		if err := removeCmdUserPathEntry(localBin); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not remove the user PATH entry for cmd.exe: %v\n", err)
 		}
 	}
 
@@ -302,6 +312,37 @@ func StripChandlerLines(configFile, localBin string) bool {
 		return false
 	}
 	return true
+}
+
+// cmdUserPathRemoveScript drops the folder from the user-scope PATH when
+// an entry matches it (trimmed, case-insensitive), and reports
+// removed/absent — the exact reverse of the PATH setup's ensure script.
+// An entry that only holds whitespace goes too; an empty result deletes
+// the value outright instead of lingering as an empty string.
+const cmdUserPathRemoveScript = `
+$bin = $env:CHANDLER_LOCAL_BIN
+if ([string]::IsNullOrEmpty($bin)) { exit 1 }
+$p = [Environment]::GetEnvironmentVariable('Path', 'User')
+if ($null -eq $p) { Write-Output 'absent'; exit 0 }
+$kept = @($p -split ';' | Where-Object { $_.Trim() -ne '' -and $_.Trim() -ine $bin })
+$rest = $kept -join ';'
+if ($rest -ceq $p.TrimEnd(';')) { Write-Output 'absent'; exit 0 }
+if ($rest -eq '') {
+    [Environment]::SetEnvironmentVariable('Path', $null, 'User')
+} else {
+    [Environment]::SetEnvironmentVariable('Path', $rest, 'User')
+}
+Write-Output 'removed'
+`
+
+// removeCmdUserPathEntry reverses the cmd.exe user-PATH automation: the
+// HKCU\Environment\Path value loses the LOCAL_BIN entry, through the
+// same powershell.exe -NoProfile route (and WM_SETTINGCHANGE broadcast)
+// the write used. Best-effort — a missing powershell.exe or a failed run
+// is the caller's warning, never an uninstall failure.
+func removeCmdUserPathEntry(localBin string) error {
+	_, err := pathsetup.RunUserPathScript(cmdUserPathRemoveScript, localBin)
+	return err
 }
 
 // fileReferencesChandlerScripts reports whether the file at path exists

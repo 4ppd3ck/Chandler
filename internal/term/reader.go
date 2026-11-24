@@ -43,6 +43,13 @@ type KeySource interface {
 
 var escWindow = 50 * time.Millisecond
 
+// digitWindow bounds how long ReadTailDigit waits for a second digit
+// after a first one — the two-digit compose that lets the menu reach its
+// entries past 10. A typed pair lands well inside it; a deliberate
+// second keystroke usually does not. Same trade the bash original's
+// 0.05s escape window made, tuned for human fingers.
+var digitWindow = 200 * time.Millisecond
+
 const escByte = 0x1b
 
 const maxCSIParams = 16
@@ -88,6 +95,42 @@ func (r *Reader) ReadKey() (KeyMsg, error) {
 		return r.readEscape()
 	}
 	return decodeByte(b), nil
+}
+
+// ReadTailDigit waits up to digitWindow for the keystroke AFTER a digit
+// was already consumed by the caller — ReadKey cannot do this itself,
+// since the first digit has already come out of the stream. A digit that
+// use accepts is consumed and reported; everything else — a digit use
+// rejects, any other keystroke, or the window closing — leaves the
+// keystroke for the next ReadKey and reports false. Nothing is ever
+// dropped: a keystroke that already arrived is put back on r.peek (the
+// goroutine has delivered and exited, so the byte itself is parked), and
+// one still on its way stays parked as the goroutine that will deliver
+// it — the mechanism readEscape uses for a lone ESC.
+func (r *Reader) ReadTailDigit(use func(rune) bool) (rune, bool, error) {
+	ch := make(chan readResult, 1)
+	go func() {
+		b, err := r.src.ReadByte()
+		ch <- readResult{b, err}
+	}()
+	select {
+	case res := <-ch:
+		if res.err != nil {
+			if errors.Is(res.err, io.EOF) {
+				return 0, false, nil
+			}
+			return 0, false, res.err
+		}
+		if res.b >= '0' && res.b <= '9' && (use == nil || use(rune(res.b))) {
+			return rune(res.b), true, nil
+		}
+		ch <- res
+		r.peek = ch
+		return 0, false, nil
+	case <-time.After(digitWindow):
+		r.peek = ch
+		return 0, false, nil
+	}
 }
 
 func (r *Reader) next() (byte, error) {

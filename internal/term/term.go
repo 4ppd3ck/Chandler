@@ -46,6 +46,8 @@ const (
 	hideCursorSeq = "\x1b[?25l"
 	showCursorSeq = "\x1b[?25h"
 	clearSeq      = "\x1b[H\x1b[2J" + "\x1b[H"
+	enterAltSeq   = "\x1b[?1049h"
+	leaveAltSeq   = "\x1b[?1049l"
 )
 
 func HideCursor(w io.Writer) {
@@ -58,6 +60,26 @@ func ShowCursor(w io.Writer) {
 
 func ClearScreen(w io.Writer) {
 	fmt.Fprint(w, clearSeq)
+}
+
+// EnterAltScreen switches the terminal to the alternate screen buffer —
+// the fzf pattern: the menu lives on a scratch screen the user's
+// scrollback never sees, and LeaveAltScreen restores the pre-menu screen
+// byte-for-byte. The clear after the switch is belt and braces (the
+// alternate screen starts empty) — some emulators preserve its previous
+// content. Terminals without 1049 support ignore the sequence and keep
+// the historical draw-over-the-screen behavior.
+func EnterAltScreen(w io.Writer) {
+	fmt.Fprint(w, enterAltSeq)
+	ClearScreen(w)
+}
+
+// LeaveAltScreen returns to the primary screen buffer, discarding
+// everything the menu drew. Action output was printed on the primary
+// screen while the action ran (the menu leaves the buffer for those),
+// so it stays in the user's scrollback.
+func LeaveAltScreen(w io.Writer) {
+	fmt.Fprint(w, leaveAltSeq)
 }
 
 func EraseBlock(n int) {

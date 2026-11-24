@@ -1,5 +1,109 @@
 # Changelog
 
+## 2026-11-24 — TUI: honest status, Ctrl-C, a gate sized to the menu, alt screen, ? overlay, single-key confirms
+
+- **Ctrl-C quits the menu.** Raw mode delivers it as a key rather than
+  a signal, and the key loop had no case for it — the reflex did
+  nothing. It now quits like `q` (at a confirm prompt it aborts the
+  prompt).
+- **The status line stops claiming readiness it does not have.**
+  `✓ prerequisites ready` was printed unconditionally; the names the
+  startup check could not provide now render as
+  `⚠ prerequisites missing: wget`. The os/pkg tail is the part that
+  gives way when that line runs long.
+- **Checked entries are visible before ⏎.** With space-checked entries
+  the footer reads `⏎ runs 2 checked`.
+- **Bulk runs show their queue position** — `>>> Installing helm
+  (6/9)...`; a single-tool run carries none.
+- **`?` overlay** lists every binding (vim keys, Home/End, the quit
+  keys, the check semantics, the digit compose); the hint bar gains
+  `? keys`.
+- **The TUI gate is sized to the menu, not guessed.** The block's height
+  is derived (`BlockHeight`/`MinLines`) from the item count, header and
+  hint lines, and the TUI runs only on a terminal that holds it whole:
+  24 rows, 30 with the banner. Before, the nominal gate was 16 rows and
+  the banner threshold 27 — two rows short of its own 29-line block —
+  so on short terminals the menu's top lines scrolled off and the
+  highlight could sit on a row nobody saw. Those terminals now get the
+  numeric menu. Every drawn line is also cut to the layout width, since
+  a wrapped line would take two rows while the erase counts one.
+- **Resize handling closes two gaps.** Every redraw re-probes the size
+  (the watcher stands down during an action, so a resize while an
+  installer ran stayed unhandled until the next keypress), and the
+  78-column layout cap now holds after a resize as it does at startup.
+- **Alternate screen buffer.** The menu lives on the 1049 buffer: the
+  user's scrollback is untouched and quitting restores the pre-menu
+  screen. An action leaves the buffer, so its ▶ header, installer
+  output and the `press any key to return` pause all land on the
+  primary screen; the menu returns after the keypress. Terminals
+  without 1049 support keep the old draw-over behavior.
+- **Entries 12–15 reachable by digits**: `1` then `2`–`5`. Only `1`
+  waits for a second digit (200 ms, and only on a menu with more than
+  ten entries); a repeated digit is never a pair, so press-again-to-run
+  works at any speed and entry 11 keeps to the arrow keys. A keystroke
+  that is not the wanted digit — a rejected digit, another key, one
+  still on its way when the window closes — is handed to the next read
+  (`term.Reader.ReadTailDigit`).
+- **Single-key confirms under the TUI.** The bulk and uninstall
+  prompts read the same printed `[y/N]`, answered with one raw
+  keypress (`y` runs, anything else aborts, the key echoed).
+  `chandler tool` and the fallback menu keep the typed line.
+- Not done, on purpose: mouse support and a `/` filter — worth their
+  complexity once the menu outgrows 15 entries.
+- The unit tests for the reader, the digit rules, the line fitting and
+  the drawn height are local only (`*_test.go` is gitignored here).
+
+## 2026-11-23 — PATH wiring covers fish, bash-only machines and cmd.exe; install says what to do next
+
+- **fish support** (pathsetup): when the machine shows fish at all — a
+  `~/.config/fish` directory or a fish login shell — every PATH setup
+  appends a `fish_add_path -g $HOME/.local/bin` block to
+  `~/.config/fish/config.fish` (created when missing; needs fish ≥ 3.2).
+  Global scope keeps config.fish the single source of truth, so the
+  uninstall strip reverts the whole effect. The wiring runs before the
+  "already in the PATH" skip, so fish arriving after a completed bash
+  setup is still caught.
+- **bash bootstrap** (pathsetup): the fresh-machine creation that zsh had
+  now exists for bash — a bash login shell with neither `~/.bashrc` nor
+  `~/.zshrc` gets `.bashrc` plus the `.bash_profile` chain instead of the
+  "no compatible shell config file found" failure. The windows Git Bash
+  path shares the same `createBashConfig`.
+- **.bash_profile chain** (pathsetup): a login bash reads
+  `.bash_profile`, not `.bashrc` — an existing profile that never sources
+  `.bashrc` gets the chain line appended in its own marker block, so the
+  PATH block reaches login shells. Anything already mentioning `.bashrc`
+  is left alone, and `.bash_profile` is never created on unix, where
+  creating it would shadow `~/.profile`.
+- **cmd.exe automation** (pathsetup + uninstall): the user-scope
+  registry PATH (`HKCU\Environment\Path`) gains — and uninstall removes —
+  the LOCAL_BIN entry through `powershell.exe -NoProfile` and
+  `[Environment]::SetEnvironmentVariable('Path', …, 'User')`, which
+  broadcasts WM_SETTINGCHANGE. `setx` is deliberately avoided for its
+  1024-character truncation; the folder travels in an environment
+  variable, so nothing is ever interpolated into the script. New cmd
+  windows see the folder; already-open shells keep their inherited PATH.
+- **OneDrive-aware Documents** (home.DocumentsDir): the PowerShell
+  profiles (setup and uninstall alike) resolve Documents through
+  `[Environment]::GetFolderPath('MyDocuments')`, so a OneDrive-redirected
+  Documents — where PowerShell actually reads its profiles — is followed
+  instead of missed. `~/Documents` stays the fallback and the unix
+  answer.
+- **`chandler install` follow-up hint** (main): after a successful
+  install or refresh it now says "open a new terminal (or re-source your
+  shell config) to use the command" — the PATH write never reaches
+  already-open shells, and the command only looked broken until then.
+- **`doctor` reports the shell** (main): a `shell:` line (the `$SHELL`
+  base name, `unknown` when unset; `shell` field in the `--json` output),
+  the fish config joins the scanned shell configs, and a fish login
+  shell without a chandler block gets a ⚠ line pointing at
+  `config.fish` — fish reads neither `.bashrc` nor `.zshrc`. Read-only
+  as before.
+- The uninstall strip list grows `config.fish`, and the windows branch
+  resolves the real Documents for the profile strips and reverses the
+  registry PATH entry. The block writer is one shared
+  `appendMarkerBlock` (newline guard and existing-block check included),
+  so every new block kind strips exactly like the old ones.
+
 ## 2026-11-14 — awscred renamed to awscreds
 
 - `awscreds` (was `awscred`) — plural, matching what the file holds and
