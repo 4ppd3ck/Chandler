@@ -25,6 +25,35 @@ import (
 
 var errInstallScriptMissing = errors.New("install script not found")
 
+// SingleKeyConfirm, when set (the TUI sets it for its session), answers
+// a confirm with one raw keypress instead of the typed [y/N] line — the
+// printed prompt stays identical, so the transcript reads the same. nil
+// keeps the typed read: the fallback menu and `chandler tool` never
+// enter raw mode on purpose.
+var SingleKeyConfirm func(prompt string) bool
+
+// confirm asks the user to go through with a destructive or bulk action.
+// The prompt is printed either way; the answer comes from the TUI's
+// single-key hook when one is installed, from a typed line otherwise.
+func confirm(prompt string) bool {
+	if SingleKeyConfirm != nil {
+		return SingleKeyConfirm(prompt)
+	}
+	fmt.Print(prompt)
+	return typedAnswer()
+}
+
+// typedAnswer reads the typed half of a [y/N] prompt — the terminal
+// echoes the line — and counts exactly y/Y as consent.
+func typedAnswer() bool {
+	line, _ := readLine(os.Stdin)
+	if answer := strings.TrimSpace(line); answer != "y" && answer != "Y" {
+		fmt.Println("Aborted.")
+		return false
+	}
+	return true
+}
+
 // RunAction runs one menu action — the interactive path (the TUI, the
 // fallback menu), where the bulk-install confirm reads the terminal.
 func RunAction(action, root, scriptDir string, rd *term.Reader) error {
@@ -67,10 +96,7 @@ func runAction(action, root, scriptDir string, assumeYes bool, extraArgs []strin
 	case "__update_scripts":
 		return UpdateScripts()
 	case "__uninstall":
-		fmt.Printf("\n? This removes the installed command, the deployed scripts tree, the desktop entry and every config line chandler wrote. Continue? [y/N] ")
-		line, _ := readLine(os.Stdin)
-		if answer := strings.TrimSpace(line); answer != "y" && answer != "Y" {
-			fmt.Println("Aborted.")
+		if !confirm("\n? This removes the installed command, the deployed scripts tree, the desktop entry and every config line chandler wrote. Continue? [y/N] ") {
 			return nil
 		}
 		return runSelfUninstall()
@@ -89,13 +115,8 @@ func runToolList(tools []string, assumeYes bool, root, scriptDir string, extraAr
 	if len(tools) > 1 {
 		if assumeYes {
 			fmt.Printf("Installing %d tools (--yes).\n", len(tools))
-		} else {
-			fmt.Printf("\n? This will install %d tools. Continue? [y/N] ", len(tools))
-			line, _ := readLine(os.Stdin)
-			if answer := strings.TrimSpace(line); answer != "y" && answer != "Y" {
-				fmt.Println("Aborted.")
-				return nil
-			}
+		} else if !confirm(fmt.Sprintf("\n? This will install %d tools. Continue? [y/N] ", len(tools))) {
+			return nil
 		}
 	}
 
@@ -106,9 +127,9 @@ func runToolList(tools []string, assumeYes bool, root, scriptDir string, extraAr
 
 	var firstErr error
 	results := make([]installResult, 0, len(tools))
-	for _, tool := range tools {
+	for i, tool := range tools {
 		start := time.Now()
-		err := runInstall(tool, scriptDir, logDir, extraArgs...)
+		err := runInstall(tool, scriptDir, logDir, i+1, len(tools), extraArgs...)
 		results = append(results, installResult{tool: tool, failed: err != nil, dur: time.Since(start)})
 		if err == nil {
 			// The Bash-tools installer wires aliases and the k/aw/tf
@@ -162,13 +183,19 @@ func printSummary(results []installResult) {
 	fmt.Printf("  %d/%d succeeded · total %s\n", okCount, len(results), total.Round(100*time.Millisecond))
 }
 
-func runInstall(tool, scriptDir, logDir string, extraArgs ...string) error {
+func runInstall(tool, scriptDir, logDir string, pos, total int, extraArgs ...string) error {
 	script := filepath.Join(scriptDir, "install-"+tool+".sh")
 	if info, err := os.Stat(script); err != nil || !info.Mode().IsRegular() {
 		fmt.Printf("ERROR: install script for '%s' not found (%s).\n", tool, script)
 		return errInstallScriptMissing
 	}
-	fmt.Printf(">>> Installing %s...\n", tool)
+	// A bulk run announces its queue position — "installing everything"
+	// otherwise hides how far along it is until the summary.
+	if total > 1 {
+		fmt.Printf(">>> Installing %s (%d/%d)...\n", tool, pos, total)
+	} else {
+		fmt.Printf(">>> Installing %s...\n", tool)
+	}
 	bashExe, err := bashCommand()
 	if err != nil {
 		return err

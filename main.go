@@ -169,20 +169,21 @@ func installIfMissing(tool requiredTool) error {
 
 // ensurePrerequisites runs the install-if-missing pass for the installer
 // tools, printing the ✓/⚠ lines like the bash script. It never exits:
-// the returned bool says whether anything failed, so the interactive
-// flow warns and continues (only the child installers need these tools)
-// and the `tool` subcommand does the same.
-func ensurePrerequisites() bool {
-	var failed bool
+// the returned slice names the tools that could not be provided, so the
+// interactive flow warns and continues (only the child installers need
+// these tools) — and the menu's status line shows the honest ⚠ list
+// instead of claiming readiness. The `tool` subcommand ignores it.
+func ensurePrerequisites() []string {
+	var missing []string
 	for _, tool := range requiredToolsFor() {
 		if err := installIfMissing(tool); err != nil {
-			failed = true
+			missing = append(missing, tool.cmd)
 		}
 	}
-	if failed {
+	if len(missing) > 0 {
 		fmt.Println("warning: some prerequisites are missing; the install actions may fail until they are available.")
 	}
-	return failed
+	return missing
 }
 
 // exitCodeFor mirrors the bash script's set -e behaviour: exit with the
@@ -478,6 +479,10 @@ func runInstallCmd() int {
 		} else {
 			fmt.Printf("chandler: refreshed from %s\n", source)
 		}
+		// The PATH write above (or the earlier install that made the
+		// configs current) does not reach already-open shells: without the
+		// pointer the command looks dead until a lucky new terminal.
+		fmt.Println("chandler: open a new terminal (or re-source your shell config) to use the command.")
 	case errors.Is(err, selfinstall.ErrRefreshCurrent):
 		fmt.Println("chandler: already current.")
 	default:
@@ -560,6 +565,7 @@ type doctorReport struct {
 	ConfigClouds     string              `json:"config_cloud_providers,omitempty"`
 	LocalBin         string              `json:"local_bin"`
 	LocalBinOnPath   bool                `json:"local_bin_on_path"`
+	Shell            string              `json:"shell"`
 	ShellConfigs     []doctorShellConfig `json:"shell_configs"`
 	Prerequisites    []doctorTool        `json:"prerequisites"`
 	Tools            []doctorTool        `json:"tools"`
@@ -593,6 +599,7 @@ func buildDoctorReport() doctorReport {
 
 	sep := string(os.PathListSeparator)
 	r.LocalBinOnPath = strings.Contains(sep+os.Getenv("PATH")+sep, sep+r.LocalBin+sep)
+	r.Shell = pathsetup.LoginShellName()
 
 	for _, name := range []string{".bashrc", ".zshrc"} {
 		configFile := filepath.Join(home.Dir(), name)
@@ -602,6 +609,14 @@ func buildDoctorReport() doctorReport {
 		r.ShellConfigs = append(r.ShellConfigs, doctorShellConfig{
 			Path:  configFile,
 			Block: pathsetup.FileHasChandlerBlock(configFile),
+		})
+	}
+	// fish's config joins the scan: a fish user's block lives there, and
+	// the report's fish hint below reads this entry's status.
+	if fishConf := pathsetup.FishConfigPath(); rootpin.HasRegularFile(fishConf) {
+		r.ShellConfigs = append(r.ShellConfigs, doctorShellConfig{
+			Path:  fishConf,
+			Block: pathsetup.FileHasChandlerBlock(fishConf),
 		})
 	}
 
@@ -626,6 +641,19 @@ func buildDoctorReport() doctorReport {
 	}
 	r.CommandInstalled = rootpin.HasRegularFile(r.CommandPath)
 	return r
+}
+
+// fishBlockPresent reports whether the report's shell-config scan found a
+// chandler block in the fish config — the entry only exists when the
+// config file does, so absence means unwired fish too.
+func fishBlockPresent(r doctorReport) bool {
+	fishConf := pathsetup.FishConfigPath()
+	for _, sc := range r.ShellConfigs {
+		if sc.Path == fishConf {
+			return sc.Block
+		}
+	}
+	return false
 }
 
 // runDoctor is the `doctor` subcommand: a read-only report of everything
@@ -674,12 +702,19 @@ func runDoctor(args []string) int {
 	} else {
 		fmt.Printf("path:            ⚠ %s is NOT on the PATH\n", r.LocalBin)
 	}
+	fmt.Printf("shell:           %s\n", r.Shell)
 	for _, sc := range r.ShellConfigs {
 		state := "no chandler block"
 		if sc.Block {
 			state = "chandler block present"
 		}
 		fmt.Printf("shell config:    %s (%s)\n", sc.Path, state)
+	}
+	// fish reads neither .bashrc nor .zshrc — its block alone decides
+	// whether a fish session sees the command. The doctor only reports;
+	// the fix is any chandler run, which wires config.fish on the way.
+	if r.Shell == "fish" && !fishBlockPresent(r) {
+		fmt.Printf("shell config:    ⚠ fish does not read .bashrc/.zshrc — no chandler block in %s; run any chandler command once to wire it\n", pathsetup.FishConfigPath())
 	}
 
 	fmt.Println()
@@ -1001,8 +1036,9 @@ func main() {
 	// installed — on windows that closed the window instantly whenever jq
 	// was missing without a usable package manager. The menu itself runs
 	// fine without these tools (only the child installers need them), so
-	// the interactive path warns and continues instead of exiting.
-	ensurePrerequisites()
+	// the interactive path warns and continues instead of exiting, and
+	// the names land in the menu's status line.
+	prereqMissing := ensurePrerequisites()
 
 	ask.PrintStackNotes()
 
@@ -1075,7 +1111,7 @@ func main() {
 	// across runs (menu.LoadLastSelection, saved on exit).
 	scriptDir := filepath.Join(assetsDir, "scripts")
 	if menu.UseTUI() {
-		menu.TuiLoop(detectOS(), pkgMgr, root, scriptDir, rd, menu.LoadLastSelection(len(menu.Items)))
+		menu.TuiLoop(detectOS(), pkgMgr, root, scriptDir, prereqMissing, rd, menu.LoadLastSelection(len(menu.Items)))
 	} else {
 		// A windows session that reaches the fallback menu because stdin
 		// is not a console handle gets a pointer to the consoles where the
