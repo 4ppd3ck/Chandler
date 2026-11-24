@@ -13,10 +13,11 @@ if ! command -v aws >/dev/null 2>&1; then
   echo "AWS CLI is not installed. Exiting..."; exit 1
 fi
 
-AWS_PROFILE="${AWS_PROFILE:-default}"
+# Honest display name: env credentials are not a profile named "default".
+AWS_PROF="${AWS_PROFILE:-env credentials}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
 
-echo "Auditing security groups in profile '$AWS_PROFILE' / region '$AWS_REGION'..."
+echo "Auditing security groups in profile '$AWS_PROF' / region '$AWS_REGION'..."
 echo ""
 
 # --- Wide-open ingress rules ---------------------------------------------------

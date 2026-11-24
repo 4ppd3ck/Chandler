@@ -57,7 +57,18 @@ MAXW=$(( COLS - 8 ))
 (( MULTI == 1 )) && MAXW=$(( MAXW - 2 ))
 
 # --- candidates -----------------------------------------------------------
-mapfile -t ITEMS
+# mapfile is bash 4+; macOS ships /bin/bash 3.2 and this file also runs under
+# it via shebang paths, so candidates are read line by line — with a
+# lower-cased twin array for the case-insensitive filter below (${var,,} is
+# likewise bash 4+; the lowering goes through tr).
+ITEMS=()
+while IFS= read -r line || [[ -n "$line" ]]; do
+  ITEMS+=( "$line" )
+done
+ITEMS_LC=()
+for line in "${ITEMS[@]}"; do
+  ITEMS_LC+=( "$(printf '%s' "$line" | tr '[:upper:]' '[:lower:]')" )
+done
 N_ITEMS=${#ITEMS[@]}
 if (( N_ITEMS == 0 )); then
   printf '\r%sno candidates%s\n' "$C_DIM" "$C_RESET" >&3
@@ -67,19 +78,41 @@ fi
 FILTER=""
 SEL=0
 PREV_HEIGHT=0
-declare -A CHECKED=()      # multi mode: item text -> 1
+# Multi mode: which items are checked. An associative array is bash 4+ and
+# macOS ships /bin/bash 3.2, so the set is two parallel indexed arrays
+# scanned linearly (lists here are menu-sized).
+CHECKED_KEYS=()
+checked_has() {
+  local k="$1" k2
+  for k2 in "${CHECKED_KEYS[@]}"; do
+    [[ "$k2" == "$k" ]] && return 0
+  done
+  return 1
+}
+checked_add() {
+  checked_has "$1" || CHECKED_KEYS+=( "$1" )
+}
+checked_del() {
+  local k="$1" k2
+  local KEEP=()
+  for k2 in "${CHECKED_KEYS[@]}"; do
+    [[ "$k2" == "$k" ]] || KEEP+=( "$k2" )
+  done
+  CHECKED_KEYS=( "${KEEP[@]}" )
+}
 
 # visible[i] = index into ITEMS matching the current filter (case-insensitive)
 declare -a VIS=()
 recompute_vis() {
   VIS=()
-  local i needle="${FILTER,,}"
+  local i needle
+  needle=$(printf '%s' "$FILTER" | tr '[:upper:]' '[:lower:]')
   if [[ -z "$needle" ]]; then
     VIS=( "${ITEMS[@]}" )
     return 0
   fi
   for (( i = 0; i < N_ITEMS; i++ )); do
-    [[ "${ITEMS[$i],,}" == *"$needle"* ]] && VIS+=( "${ITEMS[$i]}" )
+    [[ "${ITEMS_LC[$i]}" == *"$needle"* ]] && VIS+=( "${ITEMS[$i]}" )
   done
   return 0
 }
@@ -125,7 +158,7 @@ draw() {
         tty_puts "\r\e[2K  "
       fi
       if (( MULTI == 1 )); then
-        if [[ -n "${CHECKED[${VIS[$n]}]:-}" ]]; then
+        if checked_has "${VIS[$n]}"; then
           tty_puts "${C_BGREEN}✓${C_RESET} "
         else
           tty_puts "${C_GRAY}·${C_RESET} "
@@ -155,7 +188,7 @@ finish_ok() {
   if (( MULTI == 1 )); then
     local n printed=0
     for (( n = 0; n < ${#VIS[@]}; n++ )); do
-      if [[ -n "${CHECKED[${VIS[$n]}]:-}" ]]; then
+      if checked_has "${VIS[$n]}"; then
         printf '%s\n' "${VIS[$n]}"
         printed=1
       fi
@@ -220,10 +253,10 @@ while true; do
       ;;
     ' ')
       if (( MULTI == 1 )); then
-        if [[ -n "${CHECKED[${VIS[$SEL]}]:-}" ]]; then
-          unset "CHECKED[${VIS[$SEL]}]"
+        if checked_has "${VIS[$SEL]}"; then
+          checked_del "${VIS[$SEL]}"
         else
-          CHECKED[${VIS[$SEL]}]=1
+          checked_add "${VIS[$SEL]}"
         fi
         draw
       else
@@ -235,14 +268,12 @@ while true; do
       ;;
     *)
       if [[ $MULTI == 1 && "$key" == "a" ]]; then         # check all visible
-        local n
-        for (( n = 0; n < ${#VIS[@]}; n++ )); do CHECKED[${VIS[$n]}]=1; done
+        for (( n = 0; n < ${#VIS[@]}; n++ )); do checked_add "${VIS[$n]}"; done
         draw
         continue
       fi
       if [[ $MULTI == 1 && "$key" == "d" ]]; then         # uncheck all visible
-        local n
-        for (( n = 0; n < ${#VIS[@]}; n++ )); do unset "CHECKED[${VIS[$n]}]"; done
+        for (( n = 0; n < ${#VIS[@]}; n++ )); do checked_del "${VIS[$n]}"; done
         draw
         continue
       fi
